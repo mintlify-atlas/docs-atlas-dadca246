@@ -1,0 +1,98 @@
+{
+  "projectType": "general",
+  "projectName": "Innex1 Rover",
+  "projectDescription": "ROS 2 software stack for the University of Leicester's autonomous lunar mining rover for the 2026 UK Lunabotics competition",
+  "theme": "aspen",
+  "primaryColor": "#7B8CDE",
+  "lightColor": "#A5B4F0",
+  "darkColor": "#5A6BB8",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart",
+              "running-simulation"
+            ]
+          },
+          {
+            "group": "System Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/packages",
+              "architecture/tf-frames"
+            ]
+          },
+          {
+            "group": "Core Components",
+            "pages": [
+              "components/simulation",
+              "components/control",
+              "components/localisation",
+              "components/perception",
+              "components/navigation"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/contributing",
+              "development/workflow",
+              "development/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Interfaces",
+            "pages": [
+              "api/actions/excavate",
+              "api/actions/deposit"
+            ]
+          },
+          {
+            "group": "Nodes",
+            "pages": [
+              "api/nodes/material-action-server",
+              "api/nodes/hazard-detection",
+              "api/nodes/tag-pose-publisher"
+            ]
+          },
+          {
+            "group": "Topics & Services",
+            "pages": [
+              "api/topics"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Gazebo Fortress simulation with lunar terrain and obstacles",
+    "Autonomous excavation and deposition with ROS 2 actions",
+    "AprilTag-based visual localization for arena navigation",
+    "Point cloud hazard detection using Open3D",
+    "Nav2 integration for path planning and obstacle avoidance",
+    "Leo Rover platform integration",
+    "Extended Kalman Filter (EKF) sensor fusion",
+    "Interface contract validation in CI/CD"
+  ],
+  "publicApiSurface": [
+    "/mission/excavate (lunabot_interfaces/action/Excavate)",
+    "/mission/deposit (lunabot_interfaces/action/Deposit)",
+    "/hazards/front (sensor_msgs/msg/PointCloud2)",
+    "/tag_pose (geometry_msgs/msg/PoseWithCovarianceStamped)",
+    "lunabot_control.material_action_server",
+    "lunabot_perception.hazard_detection",
+    "lunabot_localisation.tag_pose_publisher"
+  ]
+}
