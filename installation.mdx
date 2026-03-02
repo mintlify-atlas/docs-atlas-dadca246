@@ -1,0 +1,197 @@
+---
+title: Installation
+description: Install ROS 2 Humble, Gazebo Fortress, and required dependencies
+---
+
+The Innex1 Rover requires ROS 2 Humble and Gazebo Fortress. This guide covers installation on Ubuntu 22.04, either natively or using OrbStack for macOS users.
+
+## System requirements
+
+- Ubuntu 22.04 (Jammy Jellyfish)
+- 8GB RAM minimum (16GB recommended)
+- 20GB free disk space
+- Internet connection for initial model downloads
+
+## Ubuntu 22.04 installation
+
+<Note>
+  These instructions work for both native Ubuntu installations and OrbStack virtual machines on macOS.
+</Note>
+
+<Steps>
+  <Step title="Configure locales">
+    Set up locale settings for ROS 2:
+
+    ```bash
+    sudo apt update && sudo apt install -y locales curl gnupg2 lsb-release
+    sudo locale-gen en_GB en_GB.UTF-8
+    sudo update-locale LC_ALL=en_GB.UTF-8 LANG=en_GB.UTF-8
+    export LANG=en_GB.UTF-8
+    sudo add-apt-repository -y universe
+    ```
+  </Step>
+
+  <Step title="Add ROS 2 repository">
+    Add the official ROS 2 package repository:
+
+    ```bash
+    curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+    ```
+  </Step>
+
+  <Step title="Add Gazebo repository">
+    Add the OSRF repository for Gazebo Fortress:
+
+    ```bash
+    sudo curl https://packages.osrfoundation.org/gazebo.gpg --output /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] https://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/gazebo-stable.list > /dev/null
+    ```
+  </Step>
+
+  <Step title="Install packages">
+    Install ROS 2 Humble, Gazebo Fortress, and required tools:
+
+    ```bash
+    sudo apt update && sudo apt install -y \
+      ros-humble-desktop \
+      ros-dev-tools \
+      python3-rosdep \
+      ros-humble-ros-gz \
+      ros-humble-teleop-twist-keyboard \
+      ignition-fortress \
+      ignition-launch-cli
+    ```
+
+    <Note>
+      This installation includes RViz, RQt, and the full ROS 2 desktop toolset.
+    </Note>
+  </Step>
+
+  <Step title="Initialize rosdep">
+    Set up rosdep for dependency management:
+
+    ```bash
+    sudo rosdep init || true
+    rosdep update
+    ```
+  </Step>
+
+  <Step title="Configure shell environment">
+    Add ROS 2 to your shell startup:
+
+    ```bash
+    echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+    source ~/.bashrc
+    ```
+  </Step>
+</Steps>
+
+## OrbStack setup (macOS)
+
+OrbStack provides better performance than traditional VMs for macOS users.
+
+<Steps>
+  <Step title="Install OrbStack">
+    Download and install [OrbStack](https://orbstack.dev/).
+  </Step>
+
+  <Step title="Create Ubuntu machine">
+    Create an Ubuntu 22.04 machine:
+
+    ```bash
+    orb create ubuntu:22.04 rover-sim
+    ```
+  </Step>
+
+  <Step title="Enter the machine">
+    Access the virtual machine shell:
+
+    ```bash
+    orb shell rover-sim
+    ```
+  </Step>
+
+  <Step title="Follow Ubuntu installation">
+    Execute the Ubuntu 22.04 installation steps above inside the OrbStack machine.
+  </Step>
+</Steps>
+
+## Optional: Foxglove Bridge
+
+For advanced visualization and debugging, install the Foxglove Bridge:
+
+```bash
+sudo apt update && sudo apt install -y ros-humble-foxglove-bridge
+```
+
+Foxglove Studio provides:
+
+- Real-time sensor data visualization
+- 3D robot state rendering
+- Topic message inspection
+- Custom dashboard layouts
+
+<Tip>
+  Foxglove Bridge is particularly useful when running headless simulations on remote machines or OrbStack VMs.
+</Tip>
+
+## Verify installation
+
+Confirm ROS 2 is installed correctly:
+
+```bash
+ros2 --version
+```
+
+Expected output:
+
+```
+ros2 cli version 0.18.x
+```
+
+Check Gazebo installation:
+
+```bash
+ign gazebo --version
+```
+
+Expected output:
+
+```
+Ignition Gazebo, version 6.x.x
+```
+
+## Troubleshooting
+
+<Warning>
+  If you encounter GPG key errors during installation, re-run the repository setup commands and ensure your system clock is synchronized.
+</Warning>
+
+**Package not found errors:**
+
+Run `sudo apt update` before installing packages to refresh the package index.
+
+**Locale warnings:**
+
+Ensure `LANG=en_GB.UTF-8` is set in your current shell:
+
+```bash
+export LANG=en_GB.UTF-8
+```
+
+**Permission denied errors:**
+
+Add your user to the dialout group for serial device access:
+
+```bash
+sudo usermod -aG dialout $USER
+```
+
+Log out and back in for group changes to take effect.
+
+## Next steps
+
+<Card title="Quick start" icon="rocket" href="/quickstart">
+  Clone the repository and build the workspace
+</Card>

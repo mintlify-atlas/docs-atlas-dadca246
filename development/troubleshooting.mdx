@@ -1,0 +1,416 @@
+---
+title: Troubleshooting
+description: Common issues and solutions for Innex1 Rover development
+---
+
+## Launch Issues
+
+<Accordion title="Launch file not found">
+  **Symptom**: `Package 'package_name' not found` or `Launch file not found`
+  
+  **Cause**: Launch or worlds directories are not installed in `CMakeLists.txt`, or workspace hasn't been rebuilt.
+  
+  **Solution**:
+  
+  <Steps>
+    <Step title="Check CMakeLists.txt">
+      Ensure the launch directory is installed:
+      
+      ```cmake
+      install(DIRECTORY
+        launch
+        DESTINATION share/${PROJECT_NAME}
+      )
+      ```
+    </Step>
+    
+    <Step title="Rebuild the package">
+      ```bash
+      colcon build --symlink-install --packages-select package_name
+      source install/setup.bash
+      ```
+    </Step>
+    
+    <Step title="Verify installation">
+      ```bash
+      ros2 pkg prefix package_name
+      ls $(ros2 pkg prefix package_name)/share/package_name/launch
+      ```
+    </Step>
+  </Steps>
+</Accordion>
+
+<Accordion title="Multiple Gazebo instances">
+  **Symptom**: Simulation fails to start, port already in use, or performance degradation.
+  
+  **Cause**: Previous Gazebo instances didn't terminate cleanly.
+  
+  **Solution**:
+  
+  Kill all Gazebo processes:
+  
+  ```bash
+  pkill -9 -f "gz sim"
+  ```
+  
+  Then relaunch:
+  
+  ```bash
+  ros2 launch lunabot_simulation moon_yard.launch.py
+  ```
+  
+  <Tip>
+  Add this alias to your `~/.bashrc` for quick access:
+  
+  ```bash
+  alias killgz='pkill -9 -f "gz sim"'
+  ```
+  </Tip>
+</Accordion>
+
+<Accordion title="Models not loading">
+  **Symptom**: Simulation launches but models are missing or fail to appear.
+  
+  **Cause**: First download requires internet connection. Models are cached locally after initial download.
+  
+  **Solution**:
+  
+  <Steps>
+    <Step title="Ensure internet connection">
+      Models are downloaded from Gazebo Fuel on first launch.
+    </Step>
+    
+    <Step title="Wait for download">
+      Check terminal output for download progress. Large models may take several minutes.
+    </Step>
+    
+    <Step title="Verify cache">
+      Models are cached in `~/.gz/fuel/` for offline use:
+      
+      ```bash
+      ls ~/.gz/fuel/fuel.gazebosim.org/
+      ```
+    </Step>
+  </Steps>
+  
+  <Note>
+  After the first download, models work offline. The cache persists across launches.
+  </Note>
+</Accordion>
+
+## Build Issues
+
+<Accordion title="CMake errors">
+  **Symptom**: Build fails with CMake configuration errors.
+  
+  **Solution**:
+  
+  <Steps>
+    <Step title="Clean build artifacts">
+      ```bash
+      rm -rf build/ install/ log/
+      ```
+    </Step>
+    
+    <Step title="Reinstall dependencies">
+      ```bash
+      rosdep install --from-paths src -y --ignore-src
+      ```
+    </Step>
+    
+    <Step title="Rebuild workspace">
+      ```bash
+      colcon build --symlink-install
+      source install/setup.bash
+      ```
+    </Step>
+  </Steps>
+</Accordion>
+
+<Accordion title="Python import errors">
+  **Symptom**: `ModuleNotFoundError` when launching nodes.
+  
+  **Cause**: Workspace not sourced, or package not installed correctly.
+  
+  **Solution**:
+  
+  <Steps>
+    <Step title="Source workspace">
+      ```bash
+      source install/setup.bash
+      ```
+    </Step>
+    
+    <Step title="Verify package installation">
+      ```bash
+      ros2 pkg list | grep lunabot
+      ```
+    </Step>
+    
+    <Step title="Rebuild if necessary">
+      ```bash
+      colcon build --symlink-install --packages-select package_name
+      source install/setup.bash
+      ```
+    </Step>
+  </Steps>
+  
+  <Warning>
+  Always run `source install/setup.bash` after rebuilding, in every terminal.
+  </Warning>
+</Accordion>
+
+<Accordion title="Interface contract check failed">
+  **Symptom**: CI fails with "Missing interface" or "Type mismatch" errors.
+  
+  **Cause**: ROS topic, action, or TF link was renamed or removed without updating `.github/contracts/interface_contracts.json`.
+  
+  **Solution**:
+  
+  <Steps>
+    <Step title="Run contract check locally">
+      ```bash
+      python3 .github/scripts/check_interface_contracts.py
+      ```
+    </Step>
+    
+    <Step title="Identify missing interfaces">
+      The script will report which interfaces are missing or have type mismatches.
+    </Step>
+    
+    <Step title="Update contract file">
+      Edit `.github/contracts/interface_contracts.json` to match your changes:
+      
+      - Update `name` if you renamed a topic/action
+      - Update `type` if you changed the message type
+      - Update `source` if you moved the interface declaration
+    </Step>
+    
+    <Step title="Verify fix">
+      ```bash
+      python3 .github/scripts/check_interface_contracts.py
+      ```
+      
+      Should output: `Interface contract check passed`
+    </Step>
+  </Steps>
+  
+  <Tip>
+  Run this check before pushing to catch contract violations early.
+  </Tip>
+</Accordion>
+
+## Runtime Issues
+
+<Accordion title="Node not appearing in node list">
+  **Symptom**: `ros2 node list` doesn't show your node.
+  
+  **Cause**: Node failed to start, or entry point not registered.
+  
+  **Solution**:
+  
+  <Steps>
+    <Step title="Check terminal output">
+      Look for Python errors or stack traces when launching.
+    </Step>
+    
+    <Step title="Verify entry point">
+      Check `setup.py` has the correct entry point:
+      
+      ```python
+      entry_points={
+          'console_scripts': [
+              'your_node = package_name.your_node:main',
+          ],
+      },
+      ```
+    </Step>
+    
+    <Step title="Rebuild and source">
+      ```bash
+      colcon build --symlink-install --packages-select package_name
+      source install/setup.bash
+      ```
+    </Step>
+    
+    <Step title="Test node directly">
+      ```bash
+      ros2 run package_name your_node
+      ```
+    </Step>
+  </Steps>
+</Accordion>
+
+<Accordion title="Topics not publishing">
+  **Symptom**: `ros2 topic echo /your/topic` shows no data.
+  
+  **Solution**:
+  
+  <Steps>
+    <Step title="Verify topic exists">
+      ```bash
+      ros2 topic list
+      ```
+    </Step>
+    
+    <Step title="Check publisher info">
+      ```bash
+      ros2 topic info /your/topic
+      ```
+      
+      Should show at least one publisher.
+    </Step>
+    
+    <Step title="Inspect node logs">
+      ```bash
+      ros2 run rqt_console rqt_console
+      ```
+      
+      Look for errors in your node's logs.
+    </Step>
+    
+    <Step title="Test with ros2 topic pub">
+      ```bash
+      ros2 topic pub /your/topic std_msgs/msg/String "data: 'test'"
+      ```
+      
+      Verify subscribers can receive data.
+    </Step>
+  </Steps>
+</Accordion>
+
+<Accordion title="TF transform errors">
+  **Symptom**: `Lookup would require extrapolation` or `Frame [name] does not exist`.
+  
+  **Cause**: Missing TF broadcaster, incorrect frame names, or timing issues.
+  
+  **Solution**:
+  
+  <Steps>
+    <Step title="Visualize TF tree">
+      ```bash
+      ros2 run tf2_tools view_frames
+      evince frames.pdf
+      ```
+      
+      Check if your frames are connected.
+    </Step>
+    
+    <Step title="Check frame names">
+      ```bash
+      ros2 run tf2_ros tf2_echo source_frame target_frame
+      ```
+    </Step>
+    
+    <Step title="Verify EKF config">
+      If using robot_localization, check `src/lunabot_localisation/config/ekf.yaml` for correct frame names.
+    </Step>
+  </Steps>
+  
+  <Warning>
+  Frame names are case-sensitive. `base_link` and `Base_link` are different frames.
+  </Warning>
+</Accordion>
+
+## Simulation Performance
+
+<Accordion title="Simulation running slowly">
+  **Symptom**: Low frame rate, sluggish response, or high CPU usage.
+  
+  **Solution**:
+  
+  <Steps>
+    <Step title="Close visualization tools">
+      Only run Rviz2, GZ Web, or Foxglove when actively debugging.
+    </Step>
+    
+    <Step title="Kill duplicate instances">
+      ```bash
+      pkill -9 -f "gz sim"
+      ```
+      
+      Then relaunch once.
+    </Step>
+    
+    <Step title="Reduce sensor rates">
+      Edit sensor update rates in URDF/SDF files (requires rebuild).
+    </Step>
+  </Steps>
+  
+  <Note>
+  The simulation is configured for headless mode by default to maximize performance.
+  </Note>
+</Accordion>
+
+## Development Environment
+
+<Accordion title="ROS commands not found">
+  **Symptom**: `ros2: command not found` or `colcon: command not found`.
+  
+  **Cause**: ROS environment not sourced.
+  
+  **Solution**:
+  
+  <Steps>
+    <Step title="Source ROS setup">
+      ```bash
+      source /opt/ros/humble/setup.bash
+      ```
+    </Step>
+    
+    <Step title="Add to bashrc">
+      ```bash
+      echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+      source ~/.bashrc
+      ```
+    </Step>
+    
+    <Step title="Source workspace">
+      ```bash
+      source install/setup.bash
+      ```
+    </Step>
+  </Steps>
+</Accordion>
+
+<Accordion title="Permission denied errors">
+  **Symptom**: Cannot write to directories or execute scripts.
+  
+  **Solution**:
+  
+  For Python scripts:
+  ```bash
+  chmod +x src/package_name/scripts/your_script.py
+  ```
+  
+  For build artifacts:
+  ```bash
+  sudo chown -R $USER:$USER build/ install/ log/
+  ```
+</Accordion>
+
+## Getting More Help
+
+If your issue isn't covered here:
+
+<Steps>
+  <Step title="Check logs">
+    Review terminal output and `ros2 run rqt_console rqt_console` for error messages.
+  </Step>
+  
+  <Step title="Search existing issues">
+    Visit [GitHub Issues](https://github.com/KJdotIO/innex1-rover/issues) to see if others have encountered the same problem.
+  </Step>
+  
+  <Step title="Open a new issue">
+    If you can't find a solution, open a new issue with:
+    - System information (OS, ROS version)
+    - Steps to reproduce
+    - Error messages and logs
+    - What you've already tried
+  </Step>
+  
+  <Step title="Contact the team">
+    Reach out to the software lead for urgent issues or questions.
+  </Step>
+</Steps>

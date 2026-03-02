@@ -1,0 +1,91 @@
+---
+title: Excavate
+description: Action interface for autonomous and teleoperated excavation operations
+---
+
+## Overview
+
+The Excavate action interface provides mechanism-agnostic control for material collection operations. It supports both autonomous and teleoperated modes with configurable fill targets and safety interlocks.
+
+**Action Server Endpoint:** `/mission/excavate`
+
+## Goal Parameters
+
+<ParamField path="mode" type="uint8" required>
+  Operation mode for excavation
+  - `MODE_AUTO` (0): Fully autonomous excavation
+  - `MODE_TELEOP_ASSIST` (1): Teleoperated with assistance
+</ParamField>
+
+<ParamField path="timeout_s" type="float64" required>
+  Maximum time allowed for excavation operation in seconds
+</ParamField>
+
+<ParamField path="target_fill_fraction" type="float32" required>
+  Target fill level as a fraction (0.0 to 1.0) of total capacity
+</ParamField>
+
+<ParamField path="max_drive_speed_mps" type="float32" required>
+  Maximum drive speed in meters per second during excavation
+</ParamField>
+
+## Result Fields
+
+<ResponseField name="success" type="bool">
+  Whether the excavation operation completed successfully
+</ResponseField>
+
+<ResponseField name="reason_code" type="uint8">
+  Result reason code indicating outcome:
+  - `REASON_SUCCESS` (0): Operation completed successfully
+  - `REASON_TIMEOUT` (1): Operation exceeded timeout limit
+  - `REASON_ESTOP` (2): Emergency stop activated
+  - `REASON_DRIVER_FAULT` (3): Motor driver fault detected
+  - `REASON_JAM_OR_OVERCURRENT` (4): Jam or overcurrent condition detected
+  - `REASON_INTERLOCK_BLOCKED` (5): Safety interlock prevented operation
+  - `REASON_CANCELED` (6): Operation was canceled
+  - `REASON_FORCED_FAILURE` (7): Operation forced to fail
+  - `REASON_SHUTDOWN` (8): System shutdown requested
+</ResponseField>
+
+<ResponseField name="failure_reason" type="string">
+  Human-readable description of failure cause (empty on success)
+</ResponseField>
+
+<ResponseField name="collected_mass_kg_estimate" type="float32">
+  Estimated mass of collected material in kilograms
+</ResponseField>
+
+<ResponseField name="duration_s" type="float64">
+  Total duration of the excavation operation in seconds
+</ResponseField>
+
+## Feedback Fields
+
+<ResponseField name="phase" type="uint8">
+  Current phase of the excavation operation:
+  - `PHASE_PRECHECK` (0): Pre-operation safety checks
+  - `PHASE_SPINUP` (1): Excavation mechanism starting
+  - `PHASE_DIGGING` (2): Active material collection
+  - `PHASE_RETRACT` (3): Retracting excavation mechanism
+</ResponseField>
+
+<ResponseField name="elapsed_s" type="float64">
+  Time elapsed since operation start in seconds
+</ResponseField>
+
+<ResponseField name="fill_fraction_estimate" type="float32">
+  Current estimated fill level as a fraction (0.0 to 1.0)
+</ResponseField>
+
+<ResponseField name="excavation_motor_current_a" type="float32">
+  Current draw of excavation motor in amperes
+</ResponseField>
+
+<ResponseField name="jam_detected" type="bool">
+  Whether a jam condition has been detected
+</ResponseField>
+
+<ResponseField name="estop_active" type="bool">
+  Whether emergency stop is currently active
+</ResponseField>

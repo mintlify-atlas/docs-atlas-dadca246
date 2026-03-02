@@ -1,0 +1,291 @@
+---
+title: Control
+description: Material handling control system for excavation and deposition
+---
+
+The Innex1 Rover's material handling system provides action-based control for excavation and deposition operations during lunar mining missions.
+
+## Material Action Server
+
+Location: `src/lunabot_control/lunabot_control/material_action_server.py`
+
+The `MaterialActionServer` node provides ROS 2 action interfaces for:
+- **Excavation** - Collecting regolith from the mining zone
+- **Deposition** - Dumping collected material into the construction zone
+
+### Architecture
+
+```python
+class MaterialActionServer(Node):
+    def __init__(self):
+        self._excavate_server = ActionServer(
+            self,
+            Excavate,
+            "/mission/excavate",
+            execute_callback=self.execute_excavate,
+            callback_group=self._callback_group,
+        )
+        self._deposit_server = ActionServer(
+            self,
+            Deposit,
+            "/mission/deposit",
+            execute_callback=self.execute_deposit,
+            callback_group=self._callback_group,
+        )
+```
+
+Both servers use a `ReentrantCallbackGroup` to allow concurrent goal handling.
+
+## Excavation Action
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `excavate_nominal_duration_s` | 8.0 | Expected excavation duration |
+| `loop_period_s` | 0.2 | Feedback publishing rate (5 Hz) |
+| `force_failure_action` | "" | Test parameter to simulate failures |
+
+### Execution Phases
+
+The excavation action progresses through distinct phases:
+
+<Steps>
+  <Step title="PHASE_PRECHECK (0-20%)">
+    Initial safety checks and system validation
+  </Step>
+
+  <Step title="PHASE_SPINUP (20-35%)">
+    Excavation motor ramp-up to operational speed
+  </Step>
+
+  <Step title="PHASE_DIGGING (35-85%)">
+    Active regolith collection with motor current monitoring:
+    ```python
+    feedback.excavation_motor_current_a = float(8.0 + 6.0 * progress)
+    ```
+    Current ranges from 8A to 14A based on load.
+  </Step>
+
+  <Step title="PHASE_RETRACT (85-100%)">
+    Withdraw excavation mechanism and secure material
+  </Step>
+</Steps>
+
+### Feedback Message
+
+```python
+feedback.phase = Excavate.Feedback.PHASE_DIGGING
+feedback.elapsed_s = float(elapsed)
+feedback.fill_fraction_estimate = float(progress)
+feedback.excavation_motor_current_a = float(8.0 + 6.0 * progress)
+feedback.jam_detected = False
+feedback.estop_active = False
+```
+
+### Result Codes
+
+```python
+Excavate.Result.REASON_SUCCESS          # Successful collection
+Excavate.Result.REASON_CANCELED         # Client canceled goal
+Excavate.Result.REASON_TIMEOUT          # Exceeded timeout_s
+Excavate.Result.REASON_FORCED_FAILURE   # Test mode failure
+Excavate.Result.REASON_SHUTDOWN         # Node shutdown during execution
+```
+
+### Success Result
+
+```python
+result.success = True
+result.collected_mass_kg_estimate = 12.5  # Estimated regolith mass
+result.duration_s = elapsed
+```
+
+<Note>
+The `collected_mass_kg_estimate` of 12.5 kg represents typical excavation yield. Actual hardware implementation should measure fill level via sensors.
+</Note>
+
+## Deposition Action
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `deposit_nominal_duration_s` | 5.0 | Expected deposition duration |
+| `loop_period_s` | 0.2 | Feedback publishing rate (5 Hz) |
+
+### Execution Phases
+
+<Steps>
+  <Step title="PHASE_PRECHECK (0-20%)">
+    Verify bin position and door actuators
+  </Step>
+
+  <Step title="PHASE_OPENING (20-45%)">
+    Open collection bin door
+    ```python
+    feedback.door_open = True
+    ```
+  </Step>
+
+  <Step title="PHASE_RAISING (45-65%)">
+    Raise bin to dumping angle
+    ```python
+    feedback.bed_raised = True
+    feedback.door_open = True
+    ```
+  </Step>
+
+  <Step title="PHASE_DUMPING (65-85%)">
+    Hold position while material empties
+    ```python
+    dump_duration = goal_handle.request.dump_duration_s
+    nominal_duration = max(nominal_duration, dump_duration + 2.0)
+    ```
+  </Step>
+
+  <Step title="PHASE_CLOSING (85-100%)">
+    Lower bin and close door
+  </Step>
+</Steps>
+
+### Actuator Monitoring
+
+```python
+feedback.actuator_current_a = float(3.5 + 2.5 * progress)
+```
+
+Current ranges from 3.5A to 6.0A during operation.
+
+### Result Message
+
+```python
+result.success = True
+result.residual_fill_fraction_estimate = 0.05  # ~5% material remains
+result.duration_s = elapsed
+```
+
+<Warning>
+The `residual_fill_fraction_estimate` indicates material still in the bin after dumping. Values above 0.1 may indicate a clogged door or incomplete dump.
+</Warning>
+
+## Goal Policies
+
+### Acceptance
+
+```python
+def goal_callback(self, _goal_request):
+    return GoalResponse.ACCEPT
+```
+
+All goals are accepted immediately for testing flexibility.
+
+### Cancellation
+
+```python
+def cancel_callback(self, _goal_handle):
+    return CancelResponse.ACCEPT
+```
+
+Clients can cancel long-running operations at any time.
+
+## Timeout Handling
+
+Both actions support client-specified timeouts:
+
+```python
+timeout_s = float(goal_handle.request.timeout_s)
+if timeout_s > 0.0 and elapsed >= timeout_s:
+    goal_handle.abort()
+    return result(success=False, reason_code=REASON_TIMEOUT)
+```
+
+Set `timeout_s` to 0.0 to disable timeout enforcement.
+
+## Integration Example
+
+<CodeGroup>
+```python Client - Excavate
+import rclpy
+from rclpy.action import ActionClient
+from lunabot_interfaces.action import Excavate
+
+class MissionController:
+    def __init__(self):
+        self._excavate_client = ActionClient(
+            self, Excavate, '/mission/excavate'
+        )
+
+    def start_excavation(self):
+        goal = Excavate.Goal()
+        goal.timeout_s = 15.0
+        
+        self._excavate_client.send_goal_async(
+            goal,
+            feedback_callback=self.excavate_feedback
+        )
+
+    def excavate_feedback(self, feedback_msg):
+        fb = feedback_msg.feedback
+        print(f"Phase: {fb.phase}, Fill: {fb.fill_fraction_estimate:.1%}")
+```
+
+```python Client - Deposit
+from lunabot_interfaces.action import Deposit
+
+class MissionController:
+    def start_deposition(self):
+        goal = Deposit.Goal()
+        goal.dump_duration_s = 3.0  # Hold bin raised for 3 seconds
+        goal.timeout_s = 10.0
+        
+        future = self._deposit_client.send_goal_async(goal)
+        future.add_done_callback(self.deposit_response)
+
+    def deposit_response(self, future):
+        goal_handle = future.result()
+        if goal_handle.accepted:
+            result_future = goal_handle.get_result_async()
+            result_future.add_done_callback(self.deposit_result)
+```
+</CodeGroup>
+
+## Running the Server
+
+<Steps>
+  <Step title="Launch the material action server">
+    ```bash
+    ros2 run lunabot_control material_action_server
+    ```
+  </Step>
+
+  <Step title="Verify action availability">
+    ```bash
+    ros2 action list
+    # Should show:
+    # /mission/excavate
+    # /mission/deposit
+    ```
+  </Step>
+
+  <Step title="Test excavation action">
+    ```bash
+    ros2 action send_goal /mission/excavate lunabot_interfaces/action/Excavate "{timeout_s: 10.0}"
+    ```
+  </Step>
+</Steps>
+
+## Testing Failures
+
+Simulate failures for integration testing:
+
+```bash
+ros2 run lunabot_control material_action_server --ros-args \
+  -p force_failure_action:="excavate"
+```
+
+This causes all excavation goals to abort with `REASON_FORCED_FAILURE`.
+
+<Note>
+The action server uses a `MultiThreadedExecutor` to handle concurrent excavation and deposition goals without blocking.
+</Note>

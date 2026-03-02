@@ -1,0 +1,117 @@
+---
+title: Material Action Server
+description: Action server node providing stub implementations for excavation and deposition operations
+---
+
+## Overview
+
+The `material_action_server` node provides action server stubs for the excavation and deposition mission phases. It simulates the behavior of material handling operations with realistic phases, feedback, and timing for integration testing and mission simulation.
+
+This node implements two action servers:
+- `/mission/excavate` - Handles excavation operations with phases from precheck through digging to retraction
+- `/mission/deposit` - Handles deposition operations including door opening, bed raising, dumping, and closing
+
+Both actions support timeout handling, cancellation, and forced failure modes for comprehensive testing.
+
+## Parameters
+
+<ParamField path="excavate_nominal_duration_s" type="float" default="8.0">
+  The nominal duration in seconds for a complete excavation cycle. The action progresses through all excavation phases (precheck, spinup, digging, retract) over this period.
+</ParamField>
+
+<ParamField path="deposit_nominal_duration_s" type="float" default="5.0">
+  The nominal duration in seconds for a complete deposition cycle. The action progresses through all deposition phases (precheck, opening, raising, dumping, closing) over this period.
+</ParamField>
+
+<ParamField path="loop_period_s" type="float" default="0.2">
+  The period in seconds between feedback updates during action execution. Lower values provide more frequent updates but increase processing overhead.
+</ParamField>
+
+<ParamField path="force_failure_action" type="string" default="">
+  Force a specific action to fail for testing purposes. Set to `"excavate"` or `"deposit"` to trigger an intentional failure with reason code `REASON_FORCED_FAILURE`. Leave empty for normal operation.
+</ParamField>
+
+## Published Topics
+
+This node does not publish any standard ROS topics. Feedback and results are provided through the action server interfaces.
+
+## Subscribed Topics
+
+This node does not subscribe to any topics.
+
+## Action Servers
+
+### /mission/excavate
+
+**Action Type:** `lunabot_interfaces/action/Excavate`
+
+Executes a simulated excavation operation with the following phases:
+- `PHASE_PRECHECK` - Initial validation (0-20% progress)
+- `PHASE_SPINUP` - Motor activation (20-35% progress)
+- `PHASE_DIGGING` - Active excavation (35-85% progress)
+- `PHASE_RETRACT` - Return to safe position (85-100% progress)
+
+**Feedback Fields:**
+- `phase` - Current excavation phase
+- `elapsed_s` - Time elapsed since action started
+- `fill_fraction_estimate` - Estimated fill level (0.0 to 1.0)
+- `excavation_motor_current_a` - Simulated motor current (8-14A)
+- `jam_detected` - Whether a jam has been detected (always false in stub)
+- `estop_active` - Emergency stop status (always false in stub)
+
+**Result Fields:**
+- `success` - Whether excavation completed successfully
+- `reason_code` - Status code (SUCCESS, TIMEOUT, CANCELED, FORCED_FAILURE, SHUTDOWN)
+- `failure_reason` - Human-readable failure description
+- `collected_mass_kg_estimate` - Estimated collected mass (12.5 kg on success)
+- `duration_s` - Actual duration of the operation
+
+### /mission/deposit
+
+**Action Type:** `lunabot_interfaces/action/Deposit`
+
+Executes a simulated deposition operation with the following phases:
+- `PHASE_PRECHECK` - Initial validation (0-20% progress)
+- `PHASE_OPENING` - Opening collection bin door (20-45% progress)
+- `PHASE_RAISING` - Raising the bed (45-65% progress)
+- `PHASE_DUMPING` - Dumping material (65-85% progress)
+- `PHASE_CLOSING` - Closing door and lowering bed (85-100% progress)
+
+**Feedback Fields:**
+- `phase` - Current deposition phase
+- `elapsed_s` - Time elapsed since action started
+- `actuator_current_a` - Simulated actuator current (3.5-6.0A)
+- `door_open` - Whether the bin door is open
+- `bed_raised` - Whether the bed is raised
+- `estop_active` - Emergency stop status (always false in stub)
+
+**Result Fields:**
+- `success` - Whether deposition completed successfully
+- `reason_code` - Status code (SUCCESS, TIMEOUT, CANCELED, FORCED_FAILURE, SHUTDOWN)
+- `failure_reason` - Human-readable failure description
+- `residual_fill_fraction_estimate` - Estimated remaining material (0.05 on success)
+- `duration_s` - Actual duration of the operation
+
+## Launch Command
+
+```bash
+ros2 run lunabot_control material_action_server
+```
+
+With custom parameters:
+
+```bash
+ros2 run lunabot_control material_action_server \
+  --ros-args \
+  -p excavate_nominal_duration_s:=10.0 \
+  -p deposit_nominal_duration_s:=7.0 \
+  -p loop_period_s:=0.1
+```
+
+To test failure handling:
+
+```bash
+ros2 run lunabot_control material_action_server \
+  --ros-args \
+  -p force_failure_action:=excavate
+```

@@ -1,0 +1,425 @@
+---
+title: Navigation
+description: Nav2 path planning and obstacle avoidance configuration
+---
+
+The Innex1 Rover uses ROS 2 Navigation Stack (Nav2) for autonomous path planning and control in the lunar mining arena.
+
+## Navigation Configuration
+
+Location: `src/lunabot_navigation/config/nav2_params.yaml`
+
+The navigation system is configured with conservative parameters optimized for regolith terrain and precise maneuvering.
+
+## Behavior Tree Navigator
+
+```yaml
+bt_navigator:
+  ros__parameters:
+    use_sim_time: true
+    default_bt_xml_filename: "navigate_to_pose_w_replanning_and_recovery.xml"
+```
+
+Uses the standard Nav2 behavior tree with:
+- Dynamic replanning when obstacles detected
+- Recovery behaviors (backup, spin, wait)
+- Goal tolerance checking
+
+## Controller Server
+
+### Regulated Pure Pursuit Controller
+
+```yaml
+controller_server:
+  ros__parameters:
+    controller_frequency: 20.0  # 50 ms control loop
+    controller_plugins: ["FollowPath"]
+    
+    FollowPath:
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      max_linear_vel: 0.3      # Conservative for regolith
+      desired_linear_vel: 0.3
+      max_angular_vel: 0.5     # Prevents aggressive turning
+```
+
+**Velocity limits:**
+- **Linear:** 0.3 m/s - safe speed for rough terrain and obstacle detection
+- **Angular:** 0.5 rad/s (~28°/s) - smooth turns to maintain traction
+
+<Note>
+These conservative velocities ensure the hazard detection pipeline (20 Hz) can process depth data before the rover reaches obstacles.
+</Note>
+
+### Why Regulated Pure Pursuit?
+
+| Feature | Benefit |
+|---------|----------|
+| Lookahead distance adapts to velocity | Smooth turns at speed, tight control when slow |
+| Collision avoidance integrated | Slows down near obstacles |
+| Goal approach behavior | Precise final positioning for excavation |
+| Curvature-based speed regulation | Maintains stability in sharp turns |
+
+## Planner Server
+
+### SMAC Hybrid-A* Planner
+
+```yaml
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 1.0
+    planner_plugins: ["GridBased"]
+    
+    GridBased:
+      plugin: "nav2_smac_planner/SmacPlannerHybrid"
+      tolerance: 0.5
+      allow_unknown: true
+      motion_model_for_search: "REEDS_SHEPP"
+      minimum_turning_radius: 0.40
+      reverse_penalty: 2.1
+      change_penalty: 0.0
+      non_straight_penalty: 2.0
+      cost_penalty: 3.0
+      max_iterations: 1000000
+      max_planning_time: 5.0
+```
+
+### Motion Model: Reeds-Shepp
+
+Reeds-Shepp curves allow forward and reverse motion, essential for:
+- Tight maneuvering in construction zone
+- Parallel parking at excavation sites
+- Escape from dead-ends
+
+**Kinematic constraints:**
+```yaml
+minimum_turning_radius: 0.40  # 40 cm based on rover wheelbase
+```
+
+### Penalty Weights
+
+```yaml
+reverse_penalty: 2.1        # Prefer forward motion (2x cost for reverse)
+change_penalty: 0.0         # Allow direction changes freely
+non_straight_penalty: 2.0   # Slight preference for straight paths
+cost_penalty: 3.0           # Heavily weight obstacle proximity
+```
+
+These weights bias planning toward safe, efficient paths while allowing complex maneuvers when necessary.
+
+<Warning>
+Increasing `reverse_penalty` above 3.0 may prevent the planner from finding valid paths in confined spaces.
+</Warning>
+
+## Global Costmap
+
+```yaml
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: base_footprint
+      robot_radius: 0.25
+      resolution: 0.05  # 5 cm cells
+      
+      rolling_window: true
+      width: 12         # 12 m × 12 m window
+      height: 12
+      origin_x: -5.0
+      origin_y: -8.0
+```
+
+### Rolling Window Configuration
+
+**Why rolling window instead of static map?**
+
+The rover operates in a dynamic environment without pre-mapped obstacles. A rolling window:
+- Follows the robot through the arena
+- Maintains constant memory footprint (12m × 12m @ 5cm = 57,600 cells)
+- Discards old observations as rover moves
+
+### Costmap Layers
+
+```yaml
+plugins: ["obstacle_layer", "inflation_layer"]
+```
+
+No static layer - all obstacles detected from sensors.
+
+## Obstacle Layer
+
+### Dual Observation Sources
+
+```yaml
+obstacle_layer:
+  observation_sources: hazards_front front_points_clear
+```
+
+Two point cloud sources with different roles:
+
+<CodeGroup>
+```yaml Marking Obstacles
+hazards_front:
+  topic: /hazards/front
+  data_type: "PointCloud2"
+  marking: true
+  clearing: false
+  observation_persistence: 0.7
+  expected_update_rate: 5.0
+  max_obstacle_height: 0.50
+  min_obstacle_height: 0.10
+  obstacle_max_range: 3.0
+  obstacle_min_range: 0.1
+```
+
+```yaml Clearing Space
+front_points_clear:
+  topic: /camera_front/points
+  data_type: "PointCloud2"
+  marking: false
+  clearing: true
+  expected_update_rate: 5.0
+  max_obstacle_height: 0.50
+  min_obstacle_height: 0.10
+  raytrace_max_range: 2.5
+  raytrace_min_range: 0.5
+```
+</CodeGroup>
+
+### Marking vs. Clearing
+
+- **`/hazards/front`** (from hazard detection) - Inserts obstacles into costmap
+- **`/camera_front/points`** (raw depth) - Raytraces to clear previously marked obstacles
+
+This dual-source approach prevents "ghost obstacles" from persisting after the rover moves past them.
+
+### Height Filtering
+
+```yaml
+max_obstacle_height: 0.50  # Rocks and large debris
+min_obstacle_height: 0.10  # Ignore dust and camera noise
+```
+
+Only points between 10-50 cm are inserted into the 2D costmap.
+
+### Observation Persistence
+
+```yaml
+observation_persistence: 0.7  # Obstacles remain for 700 ms after last observation
+```
+
+Prevents flickering obstacles when detection is intermittent, but clears quickly enough to avoid stale data.
+
+<Note>
+The 0.7 s persistence accommodates the ~20 Hz hazard detection rate, retaining obstacles for 3-4 detection cycles.
+</Note>
+
+## Inflation Layer
+
+```yaml
+inflation_layer:
+  plugin: "nav2_costmap_2d::InflationLayer"
+  cost_scaling_factor: 3.0
+  inflation_radius: 0.50
+```
+
+**Inflation radius:** 50 cm around obstacles
+
+With `robot_radius: 0.25`, this provides a 25 cm safety margin beyond the physical footprint.
+
+**Cost scaling:**
+```
+cost(d) = 253 * exp(-cost_scaling_factor * (d - robot_radius) / (inflation_radius - robot_radius))
+```
+
+Where `d` is distance from obstacle. Higher `cost_scaling_factor` creates steeper cost gradients, encouraging paths farther from obstacles.
+
+## Local Costmap
+
+```yaml
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      global_frame: odom
+      robot_base_frame: base_footprint
+      
+      rolling_window: true
+      width: 3   # 3 m × 3 m local area
+      height: 3
+      resolution: 0.05
+```
+
+**Key differences from global costmap:**
+
+| Aspect | Global Costmap | Local Costmap |
+|--------|----------------|---------------|
+| Frame | `map` | `odom` |
+| Size | 12m × 12m | 3m × 3m |
+| Update rate | 1 Hz | Higher (uses same layers) |
+| Purpose | Long-range planning | Real-time control |
+
+The local costmap uses the smooth `odom` frame to prevent controller instability from global pose corrections.
+
+## Frame Configuration
+
+Nav2 requires three coordinate frames:
+
+```yaml
+global_frame: map           # Global planning frame
+global_frame: odom          # Local control frame (local costmap)
+robot_base_frame: base_footprint
+```
+
+**Transform chain:**
+```
+map → odom → base_footprint
+  ↑       ↑
+  |       └─ Local EKF (smooth, continuous)
+  └─ Global EKF (jumps when AprilTag seen)
+```
+
+See [localisation.mdx](/components/localisation) for dual EKF architecture details.
+
+## Running Navigation
+
+<Steps>
+  <Step title="Launch Nav2 stack">
+    ```bash
+    ros2 launch lunabot_navigation navigation.launch.py
+    ```
+  </Step>
+
+  <Step title="Verify costmaps">
+    ```bash
+    ros2 topic list | grep costmap
+    # Should show:
+    # /global_costmap/costmap
+    # /local_costmap/costmap
+    ```
+  </Step>
+
+  <Step title="Set initial pose (if using AprilTag localization)">
+    ```bash
+    ros2 topic pub /initialpose geometry_msgs/PoseWithCovarianceStamped "{...}"
+    ```
+    Or use RViz "2D Pose Estimate" tool.
+  </Step>
+
+  <Step title="Send navigation goal">
+    ```bash
+    ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{...}"
+    ```
+    Or use RViz "Nav2 Goal" tool.
+  </Step>
+</Steps>
+
+## Visualizing in RViz
+
+Add these displays to monitor navigation:
+
+<CodeGroup>
+```yaml Costmaps
+- Global Costmap:
+    Topic: /global_costmap/costmap
+    Color Scheme: costmap
+    Alpha: 0.7
+
+- Local Costmap:
+    Topic: /local_costmap/costmap
+    Color Scheme: costmap
+    Alpha: 0.8
+```
+
+```yaml Paths
+- Global Plan:
+    Topic: /plan
+    Color: Yellow
+    Line Width: 0.05
+
+- Local Plan:
+    Topic: /local_plan
+    Color: Green
+    Line Width: 0.03
+```
+
+```yaml Obstacles
+- Hazards:
+    Topic: /hazards/front
+    Color: Red
+    Size: 0.03
+```
+</CodeGroup>
+
+## Tuning Tips
+
+### Path Too Close to Obstacles
+
+Increase inflation or cost penalties:
+```yaml
+inflation_radius: 0.60
+cost_penalty: 4.0
+```
+
+### Planner Timeout
+
+Relax constraints or increase planning time:
+```yaml
+max_planning_time: 10.0
+tolerance: 0.75
+```
+
+### Oscillation During Control
+
+Reduce controller frequency or increase lookahead:
+```yaml
+controller_frequency: 10.0
+# RPP lookahead is velocity-dependent; reduce max velocity
+max_linear_vel: 0.2
+```
+
+### Robot Stops Near Obstacles
+
+Check obstacle layer is clearing properly:
+```bash
+ros2 topic echo /local_costmap/costmap
+```
+
+Verify `front_points_clear` is receiving data and `clearing: true`.
+
+<Warning>
+If the costmap shows persistent obstacles where there are none, the depth camera may need recalibration or the `raytrace_max_range` may be too short.
+</Warning>
+
+## Integration with Mission Planner
+
+Nav2 provides the low-level navigation capability used by higher-level mission autonomy:
+
+1. **Mission planner** sequences goals (excavation → construction zone)
+2. **Nav2** handles path planning and obstacle avoidance
+3. **Material control** executes excavation/deposition at goals
+
+See [control.mdx](/components/control) for material handling action interface.
+
+## Performance Characteristics
+
+### Planning Time
+
+- **Simple paths:** 100-500 ms
+- **Complex obstacles:** 1-3 s
+- **Max timeout:** 5 s
+
+### Control Loop
+
+- **Frequency:** 20 Hz (50 ms)
+- **Latency:** Less than 10 ms from sensor to command
+
+### Memory Usage
+
+- **Global costmap:** ~57 KB (12m × 12m @ 5 cm)
+- **Local costmap:** ~3.6 KB (3m × 3m @ 5 cm)
+- **Total Nav2 stack:** ~150 MB
+
+<Note>
+The Hybrid-A* planner is memory-intensive but provides kinematically feasible paths. For memory-constrained platforms, consider switching to `nav2_navfn_planner/NavfnPlanner`.
+</Note>

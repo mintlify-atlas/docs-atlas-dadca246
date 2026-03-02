@@ -1,0 +1,394 @@
+---
+title: TF Frames and Coordinate Systems
+description: Transform tree structure and coordinate frame definitions
+---
+
+## Overview
+
+The Innex1 Rover uses the ROS 2 `tf2` library to maintain a tree of coordinate frame transformations. This allows the system to express positions and orientations in different reference frames and automatically transform between them.
+
+<Note>
+The rover follows the REP-105 standard for mobile robot coordinate frames.
+</Note>
+
+## TF Tree Structure
+
+The complete transform tree for the Innex1 Rover:
+
+```
+map
+ └─ odom
+     └─ base_footprint
+         └─ base_link
+             ├─ camera_link
+             │   └─ camera_optical_frame
+             ├─ lidar_link
+             ├─ imu_link
+             ├─ rocker_L_link
+             │   └─ wheel_FL_link
+             ├─ rocker_R_link
+             │   └─ wheel_FR_link
+             ├─ wheel_RL_link
+             └─ wheel_RR_link
+```
+
+## Primary Coordinate Frames
+
+### map → odom
+
+<Card title="Global Localisation Transform" icon="earth-americas">
+  Corrects odometry drift using absolute position measurements
+</Card>
+
+**Published By**: `ekf_filter_node_map` (Global EKF)
+
+**Source**: `src/lunabot_localisation/config/ekf.yaml:83`
+
+**Purpose**: Provides the correction between the drifting odometry frame and the fixed global map frame.
+
+**Behavior**:
+- **Discontinuous**: Jumps when AprilTag detections provide absolute position updates
+- **Drift Correction**: Compensates for accumulated wheel odometry drift
+- **Update Rate**: 50 Hz nominal, with discrete jumps on AprilTag detection
+
+**Configuration**:
+```yaml
+ekf_filter_node_map:
+  ros__parameters:
+    map_frame: map
+    odom_frame: odom
+    world_frame: map
+    publish_tf: true
+```
+
+<Tip>
+This transform "absorbs" all the accumulated error, allowing the odom → base_footprint transform to remain smooth for control.
+</Tip>
+
+---
+
+### odom → base_footprint
+
+<Card title="Continuous Odometry Transform" icon="arrow-trend-up">
+  Smooth, continuous position estimate for robot control
+</Card>
+
+**Published By**: `ekf_filter_node_odom` (Local EKF)
+
+**Source**: `src/lunabot_localisation/config/ekf.yaml:5`
+
+**Purpose**: Provides smooth, continuous odometry for velocity control and short-term planning.
+
+**Behavior**:
+- **Continuous**: Never jumps, always smooth
+- **Drifts Over Time**: Accumulates small errors from wheel slip and IMU bias
+- **Update Rate**: 50 Hz
+
+**Input Sources**:
+- **Wheel Odometry** (`/odom`): Position (X, Y) and velocity (VX, Vyaw)
+- **IMU** (`/imu/data_raw`): Orientation (Yaw), angular velocity, linear acceleration
+- **Visual Odometry** (`/visual_odometry`): Position (X, Y) from camera-based tracking
+
+**Configuration**:
+```yaml
+ekf_filter_node_odom:
+  ros__parameters:
+    odom_frame: odom
+    base_link_frame: base_footprint
+    world_frame: odom
+    publish_tf: true
+    frequency: 50.0
+    two_d_mode: true
+```
+
+<Note>
+The local EKF uses `base_footprint` as the child frame rather than `base_link` to keep the robot's 2D position at ground level.
+</Note>
+
+---
+
+### base_footprint → base_link
+
+<Card title="Ground Projection Transform" icon="arrow-down">
+  Static transform from ground plane to robot center
+</Card>
+
+**Published By**: `robot_state_publisher`
+
+**Source**: `src/external/leo_common-ros2/leo_description/urdf/macros.xacro:42`
+
+**Purpose**: Projects the robot's center of mass to the ground plane for 2D navigation.
+
+**Behavior**:
+- **Static Transform**: Fixed offset (no rotation, Z-axis translation only)
+- **Typical Value**: Z = +0.19 m (base_link is ~19 cm above ground)
+- **Update Rate**: Published with URDF by `robot_state_publisher`
+
+**Why Two Frames?**
+- `base_footprint`: 2D navigation reference (always on ground plane)
+- `base_link`: Physical robot center of mass (includes vertical offset)
+
+<Tip>
+Using `base_footprint` for navigation ensures that paths are planned at ground level, avoiding issues with robot tilt on uneven terrain.
+</Tip>
+
+---
+
+## Sensor Frames
+
+### base_link → camera_link → camera_optical_frame
+
+**Purpose**: Camera mounting position and orientation
+
+**Published By**: `robot_state_publisher` (from URDF)
+
+**Transform Chain**:
+1. `base_link` → `camera_link`: Physical mounting position (translation + rotation)
+2. `camera_link` → `camera_optical_frame`: Optical axis alignment (rotation to match camera convention)
+
+**Camera Convention**:
+- X: Right
+- Y: Down
+- Z: Forward (optical axis)
+
+**Usage**:
+- Image point cloud projection
+- Visual odometry calculations
+- AprilTag pose estimation
+
+---
+
+### base_link → lidar_link
+
+**Purpose**: LiDAR sensor mounting position
+
+**Published By**: `robot_state_publisher` (from URDF)
+
+**Typical Position**: Front of robot, elevated for maximum field of view
+
+**Usage**:
+- Obstacle detection
+- Costmap generation
+- Ground plane filtering
+
+---
+
+### base_link → imu_link
+
+**Purpose**: IMU sensor mounting position and orientation
+
+**Published By**: `robot_state_publisher` (from URDF)
+
+**Importance**: IMU orientation affects acceleration and angular velocity measurements in the EKF
+
+**Usage**:
+- Orientation estimation (yaw)
+- Angular velocity measurement
+- Linear acceleration for velocity estimation
+
+---
+
+## Wheel Frames
+
+The Leo Rover has four independent wheels with the following frame structure:
+
+- `base_link` → `rocker_L_link` → `wheel_FL_link` (Front Left)
+- `base_link` → `rocker_R_link` → `wheel_FR_link` (Front Right)
+- `base_link` → `wheel_RL_link` (Rear Left)
+- `base_link` → `wheel_RR_link` (Rear Right)
+
+**Rocker-Bogie Suspension**: The rocker links provide passive suspension, allowing the robot to traverse obstacles up to wheel diameter.
+
+---
+
+## Frame Conventions
+
+### REP-105 Standard
+
+All frames follow the REP-105 coordinate system conventions:
+
+<CardGroup cols={2}>
+  <Card title="X Axis" icon="arrow-right">
+    Forward direction of motion
+  </Card>
+  <Card title="Y Axis" icon="arrow-left">
+    Left direction (right-hand rule)
+  </Card>
+  <Card title="Z Axis" icon="arrow-up">
+    Upward direction (gravity-opposing)
+  </Card>
+  <Card title="Rotation" icon="rotate">
+    Right-hand rule (counter-clockwise positive)
+  </Card>
+</CardGroup>
+
+### Frame Naming
+
+- **map**: Fixed global reference (arena coordinates)
+- **odom**: Origin where robot started (or last reset)
+- **base_**: Robot body frames
+- **_link**: Physical link in URDF kinematic chain
+- **_optical_frame**: Camera-specific optical axis frame
+
+---
+
+## TF Contract Validation
+
+The CI system validates that required TF links exist and are published correctly:
+
+**Contract File**: `.github/contracts/interface_contracts.json:22`
+
+**Validated Links**:
+
+```json
+{
+  "tf_links": [
+    {
+      "parent": "map",
+      "child": "odom",
+      "kind": "ekf_tf",
+      "node": "ekf_filter_node_map"
+    },
+    {
+      "parent": "odom",
+      "child": "base_footprint",
+      "kind": "ekf_tf",
+      "node": "ekf_filter_node_odom"
+    },
+    {
+      "parent": "base_footprint",
+      "child": "base_link",
+      "kind": "xacro_joint"
+    }
+  ]
+}
+```
+
+<Note>
+If you rename or remove a TF frame, you must update the interface contract JSON in the same PR to pass CI validation.
+</Note>
+
+---
+
+## Debugging TF Issues
+
+### View TF Tree
+
+```bash
+# Generate PDF of current TF tree
+ros2 run tf2_tools view_frames
+
+# Monitor specific transform
+ros2 run tf2_ros tf2_echo map base_link
+```
+
+### Common Issues
+
+<CardGroup cols={2}>
+  <Card title="Transform Timeout" icon="clock">
+    **Cause**: TF publisher not running or publishing too slowly
+    **Fix**: Check that `robot_state_publisher` and EKF nodes are active
+  </Card>
+  <Card title="Frame Not Found" icon="magnifying-glass">
+    **Cause**: Frame name mismatch or URDF not loaded
+    **Fix**: Verify frame names match between code and URDF
+  </Card>
+  <Card title="Jumping Transforms" icon="shuffle">
+    **Cause**: Using global EKF transform for control
+    **Fix**: Ensure controllers use `odom` frame, not `map`
+  </Card>
+  <Card title="Inverted Transform" icon="arrows-rotate">
+    **Cause**: Requesting transform in wrong direction
+    **Fix**: Use `tf2_ros.Buffer.lookup_transform(target, source, time)`
+  </Card>
+</CardGroup>
+
+### TF Time Synchronization
+
+<Tip>
+Always use `rclpy.time.Time()` (current time) or `tf2_ros.Buffer.get_latest_common_time()` when looking up transforms to avoid extrapolation errors.
+</Tip>
+
+```python
+import rclpy
+from tf2_ros import Buffer, TransformListener
+
+# Get latest transform
+transform = tf_buffer.lookup_transform(
+    'map',
+    'base_link',
+    rclpy.time.Time()  # Use latest available
+)
+```
+
+---
+
+## Visual Odometry Integration
+
+Both EKF filters integrate visual odometry from camera-based tracking:
+
+**Topic**: `/visual_odometry`
+
+**Type**: `nav_msgs/msg/Odometry`
+
+**Provider**: RTAB-Map visual SLAM
+
+**Configuration**:
+- **Local EKF**: Uses position (X, Y) only
+- **Global EKF**: Uses position (X, Y) only
+- **Why Not Orientation?**: Visual odometry orientation is less reliable than IMU-based estimates
+
+---
+
+## AprilTag Pose Corrections
+
+**Topic**: `/tag_pose`
+
+**Type**: `geometry_msgs/msg/PoseWithCovarianceStamped`
+
+**Provider**: `apriltag_ros` package
+
+**Integration**: Global EKF only (not local EKF)
+
+**Behavior**:
+- Provides absolute pose in map frame when AprilTag visible
+- Global EKF fuses this with continuous odometry
+- Causes discrete jump in `map` → `odom` transform
+- Rejection threshold: 5.0 m (ignores outliers beyond this distance)
+
+**Configuration**: `src/lunabot_localisation/config/ekf.yaml:160`
+
+```yaml
+pose0: /tag_pose
+pose0_differential: false  # Absolute pose, not velocity
+pose0_relative: false      # In map frame, not relative to robot
+pose0_rejection_threshold: 5.0  # Reject outliers > 5m
+```
+
+<Tip>
+AprilTags are strategically placed at excavation zones and deposit bins to provide accurate position updates when the robot is near mission-critical locations.
+</Tip>
+
+---
+
+## Advanced Topics
+
+### Static vs Dynamic Transforms
+
+- **Static**: Published once, never change (e.g., sensor mounts)
+  - Use `static_transform_publisher`
+  - Published on `/tf_static` topic
+  
+- **Dynamic**: Updated continuously (e.g., wheel positions, robot pose)
+  - Published by `robot_state_publisher` or EKF nodes
+  - Published on `/tf` topic
+
+### Transform Lookup Performance
+
+- **Buffer Size**: `tf2_ros.Buffer` maintains 10 seconds of history by default
+- **Lookup Latency**: Typically less than 1 ms for cached transforms
+- **Extrapolation**: Avoid requesting future transforms (causes warnings)
+
+<Note>
+For high-frequency control loops, cache transform lookups instead of querying every iteration.
+</Note>

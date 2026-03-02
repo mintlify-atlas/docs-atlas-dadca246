@@ -1,0 +1,284 @@
+---
+title: Development Workflow
+description: Best practices and workflows for developing the Innex1 Rover
+---
+
+## Editing Without Rebuilding
+
+Thanks to the `--symlink-install` flag, you can edit certain files without rebuilding the workspace.
+
+### Files That Don't Require Rebuilding
+
+With symlink install, these file types can be edited and changes take effect immediately:
+
+- `.sdf` world files
+- `.launch.py` launch files
+- Python source files (`.py`)
+
+<Steps>
+  <Step title="Edit the file">
+    Make your changes to the world or launch file.
+  </Step>
+  
+  <Step title="Kill Gazebo">
+    Terminate all running Gazebo instances:
+    
+    ```bash
+    pkill -9 -f "gz sim"
+    ```
+  </Step>
+  
+  <Step title="Relaunch">
+    Start the simulation again:
+    
+    ```bash
+    ros2 launch lunabot_simulation moon_yard.launch.py
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+This workflow is ideal for rapid iteration on world design, sensor placement, and robot spawning parameters.
+</Tip>
+
+## When to Rebuild
+
+Rebuild the workspace when you change:
+
+- `CMakeLists.txt` or `package.xml`
+- C++ source files (`.cpp`, `.hpp`)
+- Adding new files to a package
+- Python entry points in `setup.py`
+- Installing new directories (launch, worlds, config)
+
+### Rebuilding the Workspace
+
+<Accordion title="Rebuild all packages">
+  ```bash
+  colcon build --symlink-install
+  source install/setup.bash
+  ```
+  
+  This rebuilds all packages in the workspace. Use when you're unsure which packages are affected.
+</Accordion>
+
+<Accordion title="Rebuild specific package">
+  ```bash
+  colcon build --symlink-install --packages-select lunabot_navigation
+  source install/setup.bash
+  ```
+  
+  Faster than rebuilding everything. Use when you know exactly which package changed.
+</Accordion>
+
+<Accordion title="Rebuild package and dependencies">
+  ```bash
+  colcon build --symlink-install --packages-up-to lunabot_navigation
+  source install/setup.bash
+  ```
+  
+  Rebuilds the specified package and all its dependencies. Use when interface changes affect multiple packages.
+</Accordion>
+
+<Warning>
+Always run `source install/setup.bash` after rebuilding to ensure your terminal uses the updated packages.
+</Warning>
+
+## Testing Your Changes
+
+### Launch the Simulation
+
+The primary test environment is the moon yard simulation:
+
+```bash
+ros2 launch lunabot_simulation moon_yard.launch.py
+```
+
+### Verify System Behavior
+
+Check that your changes work as expected:
+
+<Accordion title="Check node status">
+  ```bash
+  ros2 node list
+  ```
+  
+  Verify your node is running and properly named.
+</Accordion>
+
+<Accordion title="Inspect topics">
+  ```bash
+  ros2 topic list
+  ros2 topic echo /your/topic
+  ```
+  
+  Confirm topics are publishing at the expected rate and with correct data.
+</Accordion>
+
+<Accordion title="Monitor TF frames">
+  ```bash
+  ros2 run tf2_tools view_frames
+  ```
+  
+  Generates a PDF of the TF tree. Verify frame links are correct.
+</Accordion>
+
+<Accordion title="Test manual control">
+  ```bash
+  ros2 run teleop_twist_keyboard teleop_twist_keyboard
+  ```
+  
+  Drive the rover manually to test motor control and sensors.
+</Accordion>
+
+## Debugging Strategies
+
+### ROS 2 Logging
+
+Use ROS logging instead of `print()` statements:
+
+```python
+self.get_logger().info('Node started successfully')
+self.get_logger().warn('Sensor reading anomaly detected')
+self.get_logger().error('Failed to connect to action server')
+```
+
+View logs with:
+
+```bash
+ros2 run rqt_console rqt_console
+```
+
+### Inspecting Gazebo State
+
+<Steps>
+  <Step title="Launch GZ Web">
+    ```bash
+    gzweb
+    ```
+  </Step>
+  
+  <Step title="Open visualization">
+    Navigate to [https://app.gazebosim.org/visualization](https://app.gazebosim.org/visualization)
+  </Step>
+  
+  <Step title="Connect to WebSocket">
+    Enter `ws://localhost:9002` and connect
+  </Step>
+</Steps>
+
+This lets you view the simulation world, robot position, and sensor rays in your browser.
+
+### Using Foxglove Studio
+
+For advanced debugging with sensor data visualization:
+
+<Steps>
+  <Step title="Start Foxglove bridge">
+    ```bash
+    ros2 run foxglove_bridge foxglove_bridge
+    ```
+  </Step>
+  
+  <Step title="Connect Foxglove Studio">
+    Open [Foxglove Studio](https://foxglove.dev/studio) and connect to `ws://localhost:8765`
+  </Step>
+  
+  <Step title="Visualize data">
+    Add panels for point clouds, images, transforms, and robot state
+  </Step>
+</Steps>
+
+<Note>
+Foxglove is especially useful for debugging camera feeds, LiDAR data, and complex transform trees.
+</Note>
+
+## Performance Optimization
+
+### Headless Simulation
+
+The simulation runs in headless mode by default to conserve resources. Use visualization tools only when needed:
+
+| Tool | When to Use |
+| :--- | :--- |
+| Rviz2 | Debugging sensors and transforms |
+| GZ Web | Verifying world geometry and spawning |
+| Foxglove | Analyzing sensor data over time |
+
+### Resource Management
+
+<Accordion title="Kill stuck Gazebo instances">
+  ```bash
+  pkill -9 -f "gz sim"
+  ```
+  
+  Multiple Gazebo instances can cause performance issues and port conflicts.
+</Accordion>
+
+<Accordion title="Clear Gazebo cache">
+  ```bash
+  rm -rf ~/.gz/fuel/
+  ```
+  
+  Use if models fail to load. Models will re-download on next launch.
+</Accordion>
+
+## Code Quality Checks
+
+Before submitting a pull request:
+
+### Python Formatting
+
+```bash
+black src/
+```
+
+### Linting
+
+```bash
+ruff check src/
+```
+
+### Type Checking
+
+```bash
+mypy src/
+```
+
+<Tip>
+Set up pre-commit hooks to run these checks automatically before each commit.
+</Tip>
+
+## Working with ROS Interfaces
+
+### Creating Custom Messages
+
+1. Add `.msg` files to `lunabot_interfaces/msg/`
+2. Update `CMakeLists.txt` to include the new message
+3. Rebuild the workspace
+4. Import in Python: `from lunabot_interfaces.msg import YourMessage`
+
+### Creating Custom Actions
+
+1. Add `.action` files to `lunabot_interfaces/action/`
+2. Update `CMakeLists.txt` to include the new action
+3. Rebuild the workspace
+4. Import in Python: `from lunabot_interfaces.action import YourAction`
+
+<Warning>
+If your message/action is part of an interface contract, add it to `.github/contracts/interface_contracts.json`.
+</Warning>
+
+## Multi-Package Development
+
+When working across multiple packages:
+
+1. **Make changes** in multiple packages
+2. **Rebuild dependencies first**: `colcon build --symlink-install --packages-up-to lunabot_interfaces`
+3. **Rebuild dependent packages**: `colcon build --symlink-install --packages-select lunabot_navigation lunabot_control`
+4. **Source workspace**: `source install/setup.bash`
+5. **Test integration**: Launch the full system
+
+<Note>
+Always rebuild interface packages before rebuilding packages that depend on them.
+</Note>

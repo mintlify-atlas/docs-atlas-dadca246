@@ -1,0 +1,196 @@
+---
+title: Topics & Services
+description: ROS 2 topics, actions, and TF frames exposed by Lunabot
+---
+
+## Topics
+
+### `/hazards/front`
+
+**Type:** `sensor_msgs/msg/PointCloud2`  
+**Publisher:** `hazard_detection_node`  
+**Source:** `src/lunabot_perception/lunabot_perception/hazard_detection.py:22`
+
+Point cloud data representing detected obstacles (boulders, craters, and other hazards) from the front depth camera. The raw depth camera data is processed using Open3D to:
+
+1. Downsample the point cloud (5cm voxel size)
+2. Remove statistical outliers
+3. Segment ground plane using RANSAC
+4. Publish obstacle points for navigation costmap integration
+
+Used by the navigation stack to identify and avoid hazards in the lunar terrain.
+
+### `/tag_pose`
+
+**Type:** `geometry_msgs/msg/PoseWithCovarianceStamped`  
+**Publisher:** `tag_pose_publisher`  
+**Source:** `src/lunabot_localisation/lunabot_localisation/tag_pose_publisher.py:30`
+
+Robot pose estimate in the map frame derived from AprilTag detection. This topic provides an independent localization source by combining:
+
+- Static `map->tag` transform (known tag location)
+- Dynamic `camera->tag` transform (AprilTag detection)
+- Static `camera->base_footprint` transform (URDF)
+
+The covariance is distance-dependent:
+- Position covariance: `(distance × 0.1)²` with minimum 0.01
+- Yaw covariance: `(distance × 0.05)² + 0.01`
+
+Published at 10 Hz when the AprilTag is visible.
+
+### `/camera_front/points`
+
+**Type:** `sensor_msgs/msg/PointCloud2`  
+**Subscriber:** `hazard_detection_node`  
+**Source:** `src/lunabot_perception/lunabot_perception/hazard_detection.py:25`
+
+Raw point cloud data from the front-facing depth camera. This is the input for hazard detection processing.
+
+## Actions
+
+### `/mission/excavate`
+
+**Type:** `lunabot_interfaces/action/Excavate`  
+**Server:** `material_action_server`  
+**Source:** `src/lunabot_control/lunabot_control/material_action_server.py:31`
+
+Controls the excavation mechanism to collect lunar regolith during the digging phase.
+
+**Goal Fields:**
+- `timeout_s` (float64): Maximum duration before aborting (0 = no timeout)
+
+**Feedback Fields:**
+- `phase` (uint8): Current excavation phase
+  - `PHASE_PRECHECK = 0`: Pre-operation safety checks
+  - `PHASE_SPINUP = 1`: Starting excavation motors
+  - `PHASE_DIGGING = 2`: Active material collection
+  - `PHASE_RETRACT = 3`: Retracting bucket
+- `elapsed_s` (float64): Time since goal acceptance
+- `fill_fraction_estimate` (float64): Estimated bucket fill level (0.0-1.0)
+- `excavation_motor_current_a` (float64): Motor current draw in amperes
+- `jam_detected` (bool): Mechanism jam detection flag
+- `estop_active` (bool): Emergency stop status
+
+**Result Fields:**
+- `success` (bool): Whether excavation completed successfully
+- `reason_code` (uint8): Result category
+  - `REASON_SUCCESS = 0`: Nominal completion
+  - `REASON_TIMEOUT = 1`: Goal timeout exceeded
+  - `REASON_CANCELED = 2`: Client canceled the goal
+  - `REASON_FORCED_FAILURE = 3`: Testing failure mode
+  - `REASON_SHUTDOWN = 4`: Node shutdown during execution
+- `failure_reason` (string): Human-readable error description
+- `collected_mass_kg_estimate` (float64): Estimated mass collected
+- `duration_s` (float64): Total execution time
+
+### `/mission/deposit`
+
+**Type:** `lunabot_interfaces/action/Deposit`  
+**Server:** `material_action_server`  
+**Source:** `src/lunabot_control/lunabot_control/material_action_server.py:40`
+
+Controls the deposition mechanism to unload collected material into the collection bin.
+
+**Goal Fields:**
+- `dump_duration_s` (float64): How long to hold dump position
+- `timeout_s` (float64): Maximum duration before aborting (0 = no timeout)
+
+**Feedback Fields:**
+- `phase` (uint8): Current deposition phase
+  - `PHASE_PRECHECK = 0`: Pre-operation safety checks
+  - `PHASE_OPENING = 1`: Opening bin door
+  - `PHASE_RAISING = 2`: Raising dump bed
+  - `PHASE_DUMPING = 3`: Material flowing out
+  - `PHASE_CLOSING = 4`: Returning to transport configuration
+- `elapsed_s` (float64): Time since goal acceptance
+- `actuator_current_a` (float64): Actuator current draw in amperes
+- `door_open` (bool): Bin door position
+- `bed_raised` (bool): Dump bed position
+- `estop_active` (bool): Emergency stop status
+
+**Result Fields:**
+- `success` (bool): Whether deposition completed successfully
+- `reason_code` (uint8): Result category
+  - `REASON_SUCCESS = 0`: Nominal completion
+  - `REASON_TIMEOUT = 1`: Goal timeout exceeded
+  - `REASON_CANCELED = 2`: Client canceled the goal
+  - `REASON_FORCED_FAILURE = 3`: Testing failure mode
+  - `REASON_SHUTDOWN = 4`: Node shutdown during execution
+- `failure_reason` (string): Human-readable error description
+- `residual_fill_fraction_estimate` (float64): Estimated material remaining (0.0-1.0)
+- `duration_s` (float64): Total execution time
+
+## TF Frames
+
+The robot's coordinate frame tree follows REP-105 conventions for mobile robot localization.
+
+### Frame Hierarchy
+
+```
+map
+ └─ odom
+     └─ base_footprint
+         └─ base_link
+             └─ [sensor frames...]
+```
+
+### `map` → `odom`
+
+**Type:** EKF Transform  
+**Publisher:** `ekf_filter_node_map`  
+**Source:** `src/lunabot_localisation/config/ekf.yaml`
+
+The map-to-odom transform corrects for odometry drift using absolute positioning sources (AprilTag detections, GPS). This transform is:
+
+- **Discontinuous**: Jumps when new absolute measurements are fused
+- **Globally consistent**: Maintains accurate long-term positioning
+- Published by the map-frame EKF filter node
+
+### `odom` → `base_footprint`
+
+**Type:** EKF Transform  
+**Publisher:** `ekf_filter_node_odom`  
+**Source:** `src/lunabot_localisation/config/ekf.yaml`
+
+The odom-to-base_footprint transform provides smooth, continuous motion estimates by fusing:
+
+- Wheel odometry
+- IMU data
+- (Optionally) Visual odometry
+
+This transform is:
+
+- **Continuous**: No sudden jumps, smooth motion
+- **Locally accurate**: Drifts over long distances
+- Published by the odom-frame EKF filter node
+
+### `base_footprint` → `base_link`
+
+**Type:** Static Transform (URDF Joint)  
+**Source:** `src/external/leo_common-ros2/leo_description/urdf/macros.xacro`
+
+Fixed offset between the ground projection point (`base_footprint`) and the robot's physical center (`base_link`). This accounts for the robot's chassis height and ensures 2D navigation operates at ground level while 3D sensors reference the physical robot body.
+
+- **Static**: Never changes
+- **Purpose**: Separates 2D navigation (footprint) from 3D perception (link)
+
+### Frame Usage Guidelines
+
+| Frame | Use For |
+|-------|---------|
+| `map` | Long-term goals, waypoint navigation, mission planning |
+| `odom` | Short-term control, local planning, velocity commands |
+| `base_footprint` | Ground-level 2D navigation, costmap obstacles |
+| `base_link` | Sensor mounting, 3D perception, robot geometry |
+
+## Deferred Topics
+
+The following topics are referenced in the interface contracts but not yet implemented:
+
+- `/mission/state` - Current mission state machine phase
+- `/mission/autonomy_mode` - Manual vs autonomous control mode
+- `/mission/time_remaining_s` - Competition time remaining
+- `/mission/cycle_count` - Number of excavation cycles completed
+- `/mission/last_failure_reason` - Most recent failure diagnostic
+
+These topics are planned for future implementation as the mission autonomy system develops.

@@ -1,0 +1,179 @@
+---
+title: Contributing
+description: Guidelines for contributing to the Innex1 Rover project
+---
+
+## Getting Started
+
+Before contributing, ensure you have completed the installation and workspace setup as described in the [Installation](/installation) guide.
+
+## Development Workflow
+
+<Steps>
+  <Step title="Create a feature branch">
+    Create a new branch from `main` for your changes:
+    
+    ```bash
+    git checkout -b feature/your-feature
+    ```
+    
+    Use descriptive branch names that indicate the purpose of your changes.
+  </Step>
+  
+  <Step title="Make changes and test">
+    Develop your feature or fix, ensuring you test thoroughly in simulation.
+    
+    <Tip>
+    With symlink install, you can edit `.sdf` and `.launch.py` files without rebuilding. For other changes, see [When to Rebuild](/development/workflow#when-to-rebuild).
+    </Tip>
+  </Step>
+  
+  <Step title="Commit your changes">
+    Follow the commit message conventions (see below):
+    
+    ```bash
+    git commit -m "Add: obstacle avoidance algorithm"
+    ```
+  </Step>
+  
+  <Step title="Push to GitHub">
+    Push your branch to the remote repository:
+    
+    ```bash
+    git push origin feature/your-feature
+    ```
+  </Step>
+  
+  <Step title="Create a pull request">
+    Open a pull request on GitHub with a clear description of your changes.
+  </Step>
+</Steps>
+
+## Commit Message Conventions
+
+All commit messages must use one of these prefixes:
+
+| Prefix | Use Case | Example |
+| :--- | :--- | :--- |
+| `Add:` | New features or capabilities | `Add: obstacle avoidance algorithm` |
+| `Fix:` | Bug fixes | `Fix: robot spawning position` |
+| `Update:` | Changes to existing code | `Update: camera parameters` |
+| `Remove:` | Deletions of code or features | `Remove: deprecated sensor node` |
+| `Docs:` | Documentation changes | `Docs: update installation guide` |
+| `Refactor:` | Code restructuring without behavior changes | `Refactor: simplify navigation logic` |
+
+<Note>
+Commit messages should be concise but descriptive. Focus on *what* changed and *why* it matters.
+</Note>
+
+## Pre-Push Checklist
+
+Before pushing your changes, ensure:
+
+- [ ] Code builds without errors (`colcon build --symlink-install`)
+- [ ] Test world launches successfully (`ros2 launch lunabot_simulation moon_yard.launch.py`)
+- [ ] Changes tested thoroughly in simulation
+- [ ] Documentation updated (if applicable)
+- [ ] Debug statements and temporary code removed
+- [ ] Interface contracts updated (if you renamed topics/actions/frames)
+
+<Warning>
+CI runs interface contract checks on every pull request. If you rename or remove ROS interfaces, update `.github/contracts/interface_contracts.json` in the same PR.
+</Warning>
+
+## Adding New Code
+
+### Python Nodes
+
+When adding a new Python node:
+
+1. Place it in the appropriate package subdirectory (e.g., `lunabot_navigation/lunabot_navigation/`)
+2. Update `setup.py` to register the entry point:
+
+```python
+entry_points={
+    'console_scripts': [
+        'your_node = package_name.your_node:main',
+    ],
+},
+```
+
+3. Rebuild the workspace:
+
+```bash
+colcon build --symlink-install --packages-select package_name
+source install/setup.bash
+```
+
+### Launch Files
+
+1. Add your launch file to the `launch/` directory of the appropriate package
+2. Ensure it's installed in `CMakeLists.txt`:
+
+```cmake
+install(DIRECTORY
+  launch
+  DESTINATION share/${PROJECT_NAME}
+)
+```
+
+3. Rebuild the package
+
+### World Files
+
+1. Add `.sdf` world files to `lunabot_simulation/worlds/`
+2. Ensure the worlds directory is installed in `CMakeLists.txt`:
+
+```cmake
+install(DIRECTORY
+  worlds
+  DESTINATION share/${PROJECT_NAME}
+)
+```
+
+3. Rebuild `lunabot_simulation`
+
+## CI Interface Contract Checks
+
+The CI pipeline runs `check_interface_contracts.py` to verify that required ROS interfaces haven't been accidentally renamed or removed.
+
+<Accordion title="What are interface contracts?">
+  Interface contracts are guarantees about the topics, actions, and TF links that must exist in the codebase. They prevent breaking changes to critical robot communication interfaces.
+  
+  The contract file (`.github/contracts/interface_contracts.json`) defines:
+  - **Topics**: Required publishers and subscriptions with their message types
+  - **Actions**: Required action servers and clients
+  - **TF Links**: Required coordinate frame transformations
+  - **Deferred Topics**: Future interfaces not yet enforced
+</Accordion>
+
+### When to Update Contracts
+
+Update `.github/contracts/interface_contracts.json` in the same PR when you:
+
+- Rename a topic, action, or frame link
+- Change the message/action type of a contracted interface
+- Move interface declarations to a different source file
+
+<Tip>
+Mission-state topics listed in `deferred_topics` are not enforced until the state manager lands in `main`.
+</Tip>
+
+### Example Contract Entry
+
+```json
+{
+  "name": "/hazards/front",
+  "type": "sensor_msgs/msg/PointCloud2",
+  "kind": "publisher",
+  "source": "src/lunabot_perception/lunabot_perception/hazard_detection.py"
+}
+```
+
+## Getting Help
+
+If you have questions or need assistance:
+
+- Open an issue on [GitHub](https://github.com/KJdotIO/innex1-rover/issues)
+- Contact the software lead
+- Check the [Troubleshooting](/development/troubleshooting) guide for common issues

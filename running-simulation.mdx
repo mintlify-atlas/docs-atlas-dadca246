@@ -1,0 +1,332 @@
+---
+title: Running simulation
+description: Launch the moon yard simulation, visualize sensor data, and control the rover
+---
+
+The Innex1 Rover simulation provides a high-fidelity lunar environment with realistic physics, sensor data, and terrain interactions.
+
+## Launch the simulation
+
+The primary launch file starts Gazebo in headless mode, spawns the rover, and bridges ROS topics:
+
+```bash
+ros2 launch lunabot_simulation moon_yard.launch.py
+```
+
+### What happens during launch
+
+<Steps>
+  <Step title="Gazebo server starts">
+    The Gazebo Fortress server loads the moon yard world (`moon_yard.sdf`) in headless mode without a GUI.
+  </Step>
+
+  <Step title="Robot description publishes">
+    The `robot_state_publisher` node processes the URDF from `lunabot_description/urdf/lunabot.urdf.xacro` and publishes the robot model.
+  </Step>
+
+  <Step title="Rover spawns">
+    The rover spawns at coordinates `(x=0.0, y=0.0, z=0.5)` and settles to the surface under gravity.
+  </Step>
+
+  <Step title="Bridges activate">
+    ROS-Gazebo bridges connect simulation topics to ROS 2:
+    - `/cmd_vel` - Velocity commands
+    - `/odom` - Odometry
+    - `/imu/data_raw` - IMU data
+    - `/scan` - LiDAR scans
+    - `/camera_front/image` - RGB camera
+    - `/camera_front/depth_image` - Depth camera
+    - `/joint_states` - Wheel encoders
+  </Step>
+</Steps>
+
+<Note>
+  Headless mode conserves CPU and GPU resources. Use visualization tools below to observe the simulation.
+</Note>
+
+## Visualization tools
+
+The rover supports three visualization methods, each serving different purposes.
+
+### RViz2 - ROS visualization
+
+RViz2 displays ROS topics, transforms, and sensor data:
+
+```bash
+ros2 run rviz2 rviz2
+```
+
+**Recommended displays:**
+
+- **RobotModel** - 3D robot visualization
+- **TF** - Coordinate frame transforms
+- **LaserScan** - LiDAR point cloud on `/scan`
+- **Image** - Camera feed on `/camera_front/image`
+- **DepthCloud** - Depth visualization on `/camera_front/points`
+- **Odometry** - Position trail on `/odom`
+
+<Tip>
+  Save your RViz configuration to avoid reconfiguring displays:
+  ```bash
+  rviz2 -d config/rover.rviz
+  ```
+</Tip>
+
+### GZ Web - Gazebo visualization
+
+View the 3D world, terrain, and physics interactions:
+
+<Steps>
+  <Step title="Start WebSocket server">
+    ```bash
+    gzweb
+    ```
+
+    Or without the alias:
+    ```bash
+    ign launch $(ros2 pkg prefix lunabot_simulation)/share/lunabot_simulation/config/websocket.ign
+    ```
+  </Step>
+
+  <Step title="Connect via browser">
+    Open [https://app.gazebosim.org/visualization](https://app.gazebosim.org/visualization) and connect to:
+    
+    ```
+    ws://localhost:9002
+    ```
+  </Step>
+</Steps>
+
+GZ Web shows:
+
+- Arena geometry and obstacles
+- Lunar terrain surface mesh
+- Rover model and wheel interactions
+- Collision geometries
+
+<Warning>
+  GZ Web requires an active internet connection to load the web interface, but the WebSocket server runs locally.
+</Warning>
+
+### Foxglove Studio - Advanced debugging
+
+Foxglove provides professional-grade visualization with custom layouts:
+
+<Steps>
+  <Step title="Launch Foxglove Bridge">
+    ```bash
+    ros2 run foxglove_bridge foxglove_bridge
+    ```
+  </Step>
+
+  <Step title="Connect Foxglove Studio">
+    Download [Foxglove Studio](https://foxglove.dev/download) and connect to:
+
+    ```
+    ws://localhost:8765
+    ```
+  </Step>
+</Steps>
+
+**Key features:**
+
+- Multi-panel layouts for simultaneous data streams
+- Topic message inspection and playback
+- Custom plots for sensor trends
+- 3D transforms and point cloud rendering
+- Image synchronization across cameras
+
+<Tip>
+  Foxglove is especially useful for remote debugging when running simulations on OrbStack VMs or cloud instances.
+</Tip>
+
+## Visualization comparison
+
+| Tool | Purpose | Pros | Cons |
+|------|---------|------|------|
+| **RViz2** | ROS data visualization | Native ROS integration, TF display | Limited world visualization |
+| **GZ Web** | World and physics | Shows terrain and obstacles | Requires browser connection |
+| **Foxglove** | Professional debugging | Advanced features, remote access | Additional dependency |
+
+## Manual control
+
+Drive the rover using keyboard teleoperation:
+
+```bash
+ros2 run teleop_twist_keyboard teleop_twist_keyboard
+```
+
+### Controls
+
+**Movement:**
+- `i` - Move forward
+- `,` - Move backward  
+- `j` - Rotate left
+- `l` - Rotate right
+- `k` - Stop
+- `u`/`o` - Forward + rotate
+- `m`/`.` - Backward + rotate
+
+**Speed:**
+- `q` - Increase linear and angular speed by 10%
+- `z` - Decrease linear and angular speed by 10%
+- `w` - Increase linear speed only
+- `x` - Decrease linear speed only
+- `e` - Increase angular speed only
+- `c` - Decrease angular speed only
+
+<Warning>
+  The teleop terminal must have focus to receive keyboard input. Click the terminal window before sending commands.
+</Warning>
+
+## Inspecting topics
+
+View active ROS topics:
+
+```bash
+ros2 topic list
+```
+
+Monitor topic data:
+
+```bash
+ros2 topic echo /odom
+```
+
+Check message rates:
+
+```bash
+ros2 topic hz /camera_front/image
+```
+
+Inspect topic types:
+
+```bash
+ros2 topic info /cmd_vel
+```
+
+## Key topics
+
+### Sensor data
+
+| Topic | Type | Rate | Description |
+|-------|------|------|-------------|
+| `/imu/data_raw` | `sensor_msgs/msg/Imu` | 100 Hz | Acceleration and angular velocity |
+| `/scan` | `sensor_msgs/msg/LaserScan` | 10 Hz | 2D LiDAR obstacle detection |
+| `/camera_front/image` | `sensor_msgs/msg/Image` | 30 Hz | RGB camera feed |
+| `/camera_front/depth_image` | `sensor_msgs/msg/Image` | 30 Hz | Depth camera data |
+| `/camera_front/points` | `sensor_msgs/msg/PointCloud2` | 30 Hz | 3D point cloud |
+| `/camera_front/camera_info` | `sensor_msgs/msg/CameraInfo` | 30 Hz | Camera calibration |
+
+### Odometry and control
+
+| Topic | Type | Rate | Description |
+|-------|------|------|-------------|
+| `/odom` | `nav_msgs/msg/Odometry` | 50 Hz | Position and velocity estimates |
+| `/joint_states` | `sensor_msgs/msg/JointState` | 50 Hz | Wheel encoder positions |
+| `/cmd_vel` | `geometry_msgs/msg/Twist` | Variable | Velocity commands to rover |
+
+### Material handling actions
+
+| Action | Type | Description |
+|--------|------|-------------|
+| `/mission/excavate` | `lunabot_interfaces/action/Excavate` | Excavation with fill monitoring |
+| `/mission/deposit` | `lunabot_interfaces/action/Deposit` | Material deposition with door control |
+
+See the [API Reference](/api/topics) for detailed action definitions.
+
+## Platform-specific behavior
+
+### macOS (OrbStack)
+
+The launch file automatically detects macOS and switches from Ogre2 to Ogre rendering engine:
+
+```python
+if platform.system() == "Darwin":
+    # Patch world file to use Ogre instead of Ogre2
+    patched_content = content.replace(
+        "<render_engine>ogre2</render_engine>",
+        "<render_engine>ogre</render_engine>",
+    )
+```
+
+This ensures compatibility with OrbStack's graphics stack.
+
+### Custom model paths
+
+The launch file sets `GZ_SIM_RESOURCE_PATH` to include custom models:
+
+```python
+models_path = os.path.join(pkg_lunabot_simulation, "models")
+os.environ["GZ_SIM_RESOURCE_PATH"] = models_path + ":" + gz_resource_path
+```
+
+This allows Gazebo to find arena obstacles, regolith piles, and custom meshes.
+
+## Troubleshooting
+
+**Simulation freezes or lags:**
+
+Reduce sensor update rates by editing the world file:
+
+```bash
+src/lunabot_simulation/worlds/moon_yard.sdf
+```
+
+Lower camera frame rates from 30 Hz to 10 Hz, or disable depth processing temporarily.
+
+**Topics not publishing:**
+
+Verify bridges are running:
+
+```bash
+ros2 node list
+```
+
+Expected nodes:
+- `/clock_bridge`
+- `/robot_bridge`
+- `/robot_state_publisher`
+
+**Rover falls through terrain:**
+
+The surface mesh is at `z=0`. Ensure the spawn position in `moon_yard.launch.py` is above ground:
+
+```python
+spawn_z = "0.5"  # Start above surface
+```
+
+**Multiple Gazebo instances conflict:**
+
+Kill all Gazebo processes:
+
+```bash
+pkill -9 -f "gz sim"
+```
+
+**Models fail to load:**
+
+First launch requires internet to download Gazebo Fuel models. Models cache in `~/.gz/fuel/` for offline use.
+
+Manually download models:
+
+```bash
+ign fuel download -u https://fuel.gazebosim.org/1.0/OpenRobotics/models/[model_name]
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="code" href="/api/topics">
+    Explore ROS topics, actions, and message formats
+  </Card>
+  <Card title="Navigation" icon="route" href="/components/navigation">
+    Set up Nav2 for autonomous path planning
+  </Card>
+  <Card title="Perception" icon="eye" href="/components/perception">
+    Configure hazard detection and AprilTag localization
+  </Card>
+  <Card title="Material Handling" icon="shovel" href="/components/control">
+    Use excavation and deposition actions
+  </Card>
+</CardGroup>

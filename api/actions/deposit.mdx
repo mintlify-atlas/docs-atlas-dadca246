@@ -1,0 +1,92 @@
+---
+title: Deposit
+description: Action interface for autonomous and teleoperated material deposition operations
+---
+
+## Overview
+
+The Deposit action interface provides mechanism-agnostic control for material dumping operations. It supports both autonomous and teleoperated modes with configurable dump duration and automatic closing.
+
+**Action Server Endpoint:** `/mission/deposit`
+
+## Goal Parameters
+
+<ParamField path="mode" type="uint8" required>
+  Operation mode for deposition
+  - `MODE_AUTO` (0): Fully autonomous deposition
+  - `MODE_TELEOP_ASSIST` (1): Teleoperated with assistance
+</ParamField>
+
+<ParamField path="timeout_s" type="float64" required>
+  Maximum time allowed for deposition operation in seconds
+</ParamField>
+
+<ParamField path="dump_duration_s" type="float64" required>
+  Duration to hold dump position in seconds
+</ParamField>
+
+<ParamField path="require_close_after_dump" type="bool" required>
+  Whether to automatically close the deposition mechanism after dumping
+</ParamField>
+
+## Result Fields
+
+<ResponseField name="success" type="bool">
+  Whether the deposition operation completed successfully
+</ResponseField>
+
+<ResponseField name="reason_code" type="uint8">
+  Result reason code indicating outcome:
+  - `REASON_SUCCESS` (0): Operation completed successfully
+  - `REASON_TIMEOUT` (1): Operation exceeded timeout limit
+  - `REASON_ESTOP` (2): Emergency stop activated
+  - `REASON_DRIVER_FAULT` (3): Actuator driver fault detected
+  - `REASON_LIMIT_NOT_REACHED` (4): Required limit switch not reached
+  - `REASON_INTERLOCK_BLOCKED` (5): Safety interlock prevented operation
+  - `REASON_CANCELED` (6): Operation was canceled
+  - `REASON_FORCED_FAILURE` (7): Operation forced to fail
+  - `REASON_SHUTDOWN` (8): System shutdown requested
+</ResponseField>
+
+<ResponseField name="failure_reason" type="string">
+  Human-readable description of failure cause (empty on success)
+</ResponseField>
+
+<ResponseField name="residual_fill_fraction_estimate" type="float32">
+  Estimated remaining fill level after deposition as a fraction (0.0 to 1.0)
+</ResponseField>
+
+<ResponseField name="duration_s" type="float64">
+  Total duration of the deposition operation in seconds
+</ResponseField>
+
+## Feedback Fields
+
+<ResponseField name="phase" type="uint8">
+  Current phase of the deposition operation:
+  - `PHASE_PRECHECK` (0): Pre-operation safety checks
+  - `PHASE_OPENING` (1): Opening deposition door
+  - `PHASE_RAISING` (2): Raising bed or mechanism
+  - `PHASE_DUMPING` (3): Material dumping in progress
+  - `PHASE_CLOSING` (4): Closing deposition mechanism
+</ResponseField>
+
+<ResponseField name="elapsed_s" type="float64">
+  Time elapsed since operation start in seconds
+</ResponseField>
+
+<ResponseField name="actuator_current_a" type="float32">
+  Current draw of deposition actuator in amperes
+</ResponseField>
+
+<ResponseField name="door_open" type="bool">
+  Whether the deposition door is open
+</ResponseField>
+
+<ResponseField name="bed_raised" type="bool">
+  Whether the bed or mechanism is in raised position
+</ResponseField>
+
+<ResponseField name="estop_active" type="bool">
+  Whether emergency stop is currently active
+</ResponseField>

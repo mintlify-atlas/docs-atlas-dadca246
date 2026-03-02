@@ -1,0 +1,79 @@
+---
+title: AprilTag Pose Publisher
+description: Localisation node that publishes robot pose estimates from AprilTag detections
+---
+
+## Overview
+
+The `tag_pose_publisher` node provides robot localisation by computing pose estimates from AprilTag detections. It combines multiple TF transforms to determine the robot's position in the map frame based on the relative position between the camera and detected AprilTags.
+
+The node computes an independent `map->base_footprint` transform using:
+- `map->tag` - Static transform defining the tag's known position in the map
+- `camera->tag` - Dynamic transform from AprilTag detection
+- `base_footprint->camera` - Static transform from the robot's URDF
+
+The published pose includes a distance-based covariance model that accounts for decreasing accuracy at longer ranges, making it suitable for fusion with other localisation sources in the EKF.
+
+## Parameters
+
+<ParamField path="tag_frame" type="string" default="tag36h11:0">
+  The TF frame name of the AprilTag in the map. This represents the tag's known, static position in the world coordinate system.
+</ParamField>
+
+<ParamField path="detected_tag_frame" type="string" default="tag36h11:0_detection">
+  The TF frame name published by the AprilTag detector representing the tag as seen by the camera. This frame is dynamically updated as the tag is detected.
+</ParamField>
+
+<ParamField path="camera_frame" type="string" default="camera_front_optical_frame">
+  The TF frame name of the camera's optical frame. This is the reference frame for AprilTag detections.
+</ParamField>
+
+<ParamField path="target_frame" type="string" default="base_footprint">
+  The TF frame name of the robot base for which pose estimates are published. Typically `base_footprint` for ground robots.
+</ParamField>
+
+<ParamField path="map_frame" type="string" default="map">
+  The TF frame name of the global map coordinate system. Published poses are expressed in this frame.
+</ParamField>
+
+## Published Topics
+
+### /tag_pose
+
+**Type:** `geometry_msgs/msg/PoseWithCovarianceStamped`
+
+**Description:** Robot pose estimate in the map frame derived from AprilTag detection. Published at 10 Hz when a tag is visible. The covariance matrix includes:
+- X/Y position covariance: `max((distance * 0.1)^2, 0.01)` m²
+- Yaw covariance: `(distance * 0.05)^2 + 0.01` rad²
+- Z, roll, pitch covariances: 1e6 (effectively ignored in 2D localisation)
+
+The distance-based model reflects that pose accuracy degrades with increasing distance from the tag.
+
+## Subscribed Topics
+
+This node does not subscribe to topics. It uses TF transforms instead:
+- Listens for transforms between `tag_frame` and `map_frame`
+- Listens for transforms between `detected_tag_frame` and `camera_frame`
+- Listens for transforms between `target_frame` and `camera_frame`
+
+## Action Servers
+
+This node does not provide any action servers.
+
+## Launch Command
+
+```bash
+ros2 run lunabot_localisation tag_pose_publisher
+```
+
+With custom parameters:
+
+```bash
+ros2 run lunabot_localisation tag_pose_publisher \
+  --ros-args \
+  -p tag_frame:=tag36h11:1 \
+  -p detected_tag_frame:=tag36h11:1_detection \
+  -p camera_frame:=camera_rear_optical_frame \
+  -p target_frame:=base_link \
+  -p map_frame:=odom
+```

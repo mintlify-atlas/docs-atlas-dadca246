@@ -1,0 +1,158 @@
+---
+title: Simulation
+description: Gazebo simulation worlds and models for the Innex1 Rover
+---
+
+The Innex1 Rover uses Gazebo Ignition for high-fidelity simulation of lunar terrain, physics, and sensor models.
+
+## Moon Yard World
+
+The primary simulation environment replicates a lunar mining arena with obstacles, excavation zones, and AprilTag beacons.
+
+### World Configuration
+
+Location: `src/lunabot_simulation/worlds/moon_yard.sdf`
+
+<Steps>
+  <Step title="Physics Engine">
+    The world uses ODE physics with real-time simulation:
+    ```xml
+    <physics name="1ms" type="ode">
+      <max_step_size>0.002</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>500</real_time_update_rate>
+    </physics>
+    ```
+    - Step size: 2ms for stable dynamics
+    - Update rate: 500 Hz
+  </Step>
+
+  <Step title="Environment Elements">
+    The world includes:
+    - **Lunar surface mesh** at `(2.95, -1.1, 0.0)`
+    - **AprilTag beacon** at `(0, 1.08, 0.25)` for localization
+    - **Arena walls** forming a 7.9m x 4.4m enclosed area
+    - **7 rocks** of varying sizes distributed across obstacle zones
+  </Step>
+
+  <Step title="System Plugins">
+    ```xml
+    <plugin filename="ignition-gazebo-physics-system" />
+    <plugin filename="ignition-gazebo-sensors-system">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="ignition-gazebo-imu-system" />
+    ```
+  </Step>
+</Steps>
+
+### Arena Layout
+
+The moon yard arena dimensions:
+
+| Boundary | Position | Size |
+|----------|----------|------|
+| North wall | `(2.95, 1.15, 0.25)` | 7.9m x 0.1m x 0.5m |
+| South wall | `(2.95, -3.35, 0.25)` | 7.9m x 0.1m x 0.5m |
+| East wall | `(6.95, -1.1, 0.25)` | 0.1m x 4.4m x 0.5m |
+| West wall | `(-1.05, -1.1, 0.25)` | 0.1m x 4.4m x 0.5m |
+
+<Note>
+The arena design follows NASA Lunabotics competition specifications with distinct starting, obstacle, and excavation zones.
+</Note>
+
+## Launch Configuration
+
+Location: `src/lunabot_simulation/launch/moon_yard.launch.py`
+
+### Spawn Parameters
+
+```python
+spawn_x = "0.0"
+spawn_y = "0.0"
+spawn_z = "0.5"  # Start above surface, gravity will settle it
+```
+
+The rover spawns at the origin and drops onto the lunar surface under gravity.
+
+### ROS-Gazebo Bridge
+
+The launch file configures topic bridges for sensor and control data:
+
+<CodeGroup>
+```python Command Topics
+"/cmd_vel@geometry_msgs/msg/Twist]ignition.msgs.Twist"
+```
+
+```python Sensor Topics
+"/odom@nav_msgs/msg/Odometry[ignition.msgs.Odometry",
+"/imu/data_raw@sensor_msgs/msg/Imu[ignition.msgs.IMU",
+"/joint_states@sensor_msgs/msg/JointState[ignition.msgs.Model",
+"/scan@sensor_msgs/msg/LaserScan[ignition.msgs.LaserScan"
+```
+
+```python Camera Topics
+"/camera_front/image@sensor_msgs/msg/Image[ignition.msgs.Image",
+"/camera_front/depth_image@sensor_msgs/msg/Image[ignition.msgs.Image",
+"/camera_front/points@sensor_msgs/msg/PointCloud2[ignition.msgs.PointCloudPacked",
+"/camera_front/camera_info@sensor_msgs/msg/CameraInfo[ignition.msgs.CameraInfo"
+```
+</CodeGroup>
+
+### macOS Compatibility
+
+The launch file automatically patches the render engine for macOS:
+
+```python
+if platform.system() == "Darwin":
+    patched_content = content.replace(
+        "<render_engine>ogre2</render_engine>",
+        "<render_engine>ogre</render_engine>",
+    )
+```
+
+<Warning>
+Ogre2 is not fully supported on macOS. The launch file automatically switches to Ogre1 when running on Darwin systems.
+</Warning>
+
+## Model Resources
+
+The simulation uses custom models stored in `models/` directory:
+
+- `lunar_surface` - Textured terrain mesh
+- `apriltag_beacon` - Fiducial marker for localization
+- `rock_rough`, `rock_round`, `rock_large`, `rock_small` - Obstacle models
+
+### Resource Path Configuration
+
+```python
+models_path = os.path.join(pkg_lunabot_simulation, "models")
+gz_resource_path = os.environ.get("GZ_SIM_RESOURCE_PATH", "")
+os.environ["GZ_SIM_RESOURCE_PATH"] = models_path +":" + gz_resource_path
+```
+
+This ensures Gazebo can locate custom models at runtime.
+
+## Running the Simulation
+
+<Steps>
+  <Step title="Launch Gazebo with moon yard world">
+    ```bash
+    ros2 launch lunabot_simulation moon_yard.launch.py
+    ```
+  </Step>
+
+  <Step title="Verify robot spawn">
+    Check that the rover appears at `(0, 0, 0.5)` and settles onto the surface.
+  </Step>
+
+  <Step title="Confirm bridge topics">
+    ```bash
+    ros2 topic list | grep -E "(cmd_vel|odom|camera|imu)"
+    ```
+  </Step>
+</Steps>
+
+<Note>
+The simulation runs in headless mode (`-s` flag) by default to conserve resources. Add GUI by modifying `gz_args` in the launch file.
+</Note>

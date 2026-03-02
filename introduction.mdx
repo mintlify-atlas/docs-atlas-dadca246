@@ -1,0 +1,82 @@
+---
+title: Introduction
+description: Autonomous lunar excavation rover for the NASA Lunabotics competition
+---
+
+The Innex1 Rover is a ROS 2-based autonomous system designed by the University of Leicester for the NASA UK Lunabotics competition. Built on the Leo Rover platform, it simulates lunar regolith excavation, navigation, and material handling in a high-fidelity Gazebo environment.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Gazebo simulation" icon="cube">
+    High-fidelity physics simulation with moon yard terrain, obstacles, and regolith dynamics
+  </Card>
+  <Card title="Material handling" icon="shovel">
+    Autonomous excavation and deposition actions with fault detection and current monitoring
+  </Card>
+  <Card title="AprilTag localization" icon="location-dot">
+    Fiducial marker-based positioning for precise arena navigation
+  </Card>
+  <Card title="Hazard detection" icon="triangle-exclamation">
+    Computer vision-based obstacle and crater detection for safe path planning
+  </Card>
+  <Card title="Nav2 integration" icon="route">
+    Full navigation stack with path planning, obstacle avoidance, and goal-based movement
+  </Card>
+  <Card title="Sensor fusion" icon="microchip">
+    Extended Kalman Filter combining IMU, odometry, and visual localization
+  </Card>
+</CardGroup>
+
+## Architecture
+
+The rover software is organized into specialized ROS 2 packages:
+
+- **lunabot_simulation** - Gazebo worlds, launch files, and arena models
+- **lunabot_description** - Robot URDF models, meshes, and sensor configurations
+- **lunabot_perception** - Hazard detection and computer vision
+- **lunabot_localisation** - AprilTag detection, EKF fusion, and SLAM
+- **lunabot_navigation** - Nav2 integration and path planning
+- **lunabot_control** - Low-level motor control and actuation
+- **lunabot_interfaces** - Shared ROS action and message contracts
+- **lunabot_bringup** - System-level launch files
+- **lunabot_teleop** - Manual control interfaces
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install ROS 2 Humble, Gazebo Fortress, and dependencies
+  </Card>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Clone the repository and build the workspace
+  </Card>
+  <Card title="Run simulation" icon="play" href="/running-simulation">
+    Launch the moon yard simulation and visualization tools
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/topics">
+    Explore ROS topics, actions, and service interfaces
+  </Card>
+</CardGroup>
+
+## Hardware platform
+
+The Innex1 Rover is based on the Leo Rover platform, modified with:
+
+- Custom excavation mechanism with current monitoring
+- Hydraulic deposition system with limit switches
+- Front-facing depth camera for navigation
+- IMU for orientation and acceleration data
+- 2D LiDAR for obstacle detection
+
+## Competition requirements
+
+The rover must autonomously:
+
+1. Navigate from the starting zone to the excavation zone
+2. Excavate lunar regolith using the front-mounted mechanism
+3. Return to the construction zone
+4. Deposit collected material in the target area
+5. Avoid obstacles and hazards throughout the mission
+
+All operations must complete within the time limit while maximizing material collection.

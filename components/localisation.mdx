@@ -1,0 +1,323 @@
+---
+title: Localisation
+description: AprilTag and EKF localization for global pose estimation
+---
+
+The Innex1 Rover uses a dual Extended Kalman Filter (EKF) architecture with AprilTag visual landmarks for robust localization in GPS-denied lunar environments.
+
+## Localization Architecture
+
+The system employs two independent EKF instances:
+
+1. **Local EKF** (`odom` → `base_footprint`) - Smooth, continuous odometry without jumps
+2. **Global EKF** (`map` → `odom`) - Corrects drift using AprilTag detections
+
+This dual-filter approach prevents discontinuities in the local odometry frame while allowing global pose correction.
+
+## AprilTag Pose Publisher
+
+Location: `src/lunabot_localisation/lunabot_localisation/tag_pose_publisher.py`
+
+### Transform Chain
+
+The `TagPosePublisher` node computes the robot's global pose by chaining transforms:
+
+```
+map → tag (static) × camera → tag (detected) × camera → base (URDF)
+```
+
+<Steps>
+  <Step title="Lookup static tag location">
+    ```python
+    map_to_tag = self.tf_buffer.lookup_transform(
+        self.map_frame,      # "map"
+        self.tag_frame,      # "tag36h11:0"
+        Time()
+    )
+    ```
+  </Step>
+
+  <Step title="Get AprilTag detection">
+    ```python
+    camera_to_detected_tag = self.tf_buffer.lookup_transform(
+        self.detected_tag_frame,  # "tag36h11:0_detection"
+        self.camera_frame,        # "camera_front_optical_frame"
+        Time()
+    )
+    ```
+  </Step>
+
+  <Step title="Transform to base_footprint">
+    ```python
+    base_to_camera = self.tf_buffer.lookup_transform(
+        self.camera_frame,
+        self.target_frame,   # "base_footprint"
+        Time()
+    )
+    ```
+  </Step>
+
+  <Step title="Compose full transform">
+    ```python
+    pose_in_camera = tf2_geometry_msgs.do_transform_pose(
+        base_origin, base_to_camera
+    )
+    pose_in_detected_tag = tf2_geometry_msgs.do_transform_pose(
+        pose_in_camera, camera_to_detected_tag
+    )
+    pose_in_map = tf2_geometry_msgs.do_transform_pose(
+        pose_in_detected_tag, detected_tag_to_map
+    )
+    ```
+  </Step>
+</Steps>
+
+### Distance-Based Covariance
+
+Measurement uncertainty increases with tag distance:
+
+```python
+dx = camera_to_detected_tag.transform.translation.x
+dy = camera_to_detected_tag.transform.translation.y
+dz = camera_to_detected_tag.transform.translation.z
+distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+# Accuracy degrades with range
+cov_xy = max((distance * 0.1) ** 2, 0.01)
+cov_yaw = (distance * 0.05) ** 2 + 0.01
+```
+
+**Covariance scaling:**
+- XY position: 10% of distance, minimum 10 cm
+- Yaw: 5% of distance, minimum 0.1 rad
+
+### Published Message
+
+```python
+msg = PoseWithCovarianceStamped()
+msg.header.frame_id = "map"
+msg.pose.pose = pose_in_map
+
+# 6x6 covariance matrix (only diagonal populated)
+cov[0] = cov_xy       # X variance
+cov[7] = cov_xy       # Y variance
+cov[14] = 1e6         # Z (ignored in 2D mode)
+cov[21] = 1e6         # Roll (ignored)
+cov[28] = 1e6         # Pitch (ignored)
+cov[35] = cov_yaw     # Yaw variance
+```
+
+Published to `/tag_pose` at 10 Hz when tag is visible.
+
+<Note>
+Z, roll, and pitch covariances are set to 1e6 to signal these DOFs are not observed in 2D planar localization.
+</Note>
+
+## Dual EKF Configuration
+
+Location: `src/lunabot_localisation/config/ekf.yaml`
+
+### Local EKF (Odometry Frame)
+
+```yaml
+ekf_filter_node_odom:
+  ros__parameters:
+    frequency: 50.0
+    two_d_mode: true
+    publish_tf: true
+    
+    world_frame: odom
+    odom_frame: odom
+    base_link_frame: base_footprint
+```
+
+**Input sources:**
+
+<CodeGroup>
+```yaml Wheel Odometry
+odom0: /odom
+odom0_config:
+  # [X, Y, Z, Roll, Pitch, Yaw, VX, VY, VZ, VRoll, VPitch, VYaw, AX, AY, AZ]
+  [true,  true,  false, false, false, false,
+   true,  false, false, false, false, true,
+   false, false, false]
+```
+
+```yaml IMU
+imu0: /imu/data_raw
+imu0_config:
+  [false, false, false, false, false, true,   # Use yaw orientation
+   false, false, false, false, false, true,   # Use yaw velocity
+   true,  false, false]                       # Use X acceleration
+```
+
+```yaml Visual Odometry
+odom1: /visual_odometry
+odom1_config:
+  [true,  true,  false, false, false, false,  # Use X, Y position only
+   false, false, false, false, false, false,
+   false, false, false]
+```
+</CodeGroup>
+
+### Global EKF (Map Frame)
+
+```yaml
+ekf_filter_node_map:
+  ros__parameters:
+    frequency: 50.0
+    two_d_mode: true
+    publish_tf: true
+    
+    world_frame: map
+    odom_frame: odom
+    base_link_frame: base_footprint
+```
+
+**Additional AprilTag input:**
+
+```yaml
+pose0: /tag_pose
+pose0_config:
+  [true,  true,  false, false, false, true,   # Use X, Y, Yaw
+   false, false, false, false, false, false,
+   false, false, false]
+pose0_differential: false
+pose0_relative: false
+pose0_rejection_threshold: 5.0
+```
+
+<Warning>
+`pose0_differential: false` is critical - AprilTag measurements provide absolute pose in the map frame, not relative motion.
+</Warning>
+
+### State Vector Configuration
+
+The 15-element state vector:
+
+| Index | Variable | Local EKF | Global EKF |
+|-------|----------|-----------|------------|
+| 0-2 | X, Y, Z | X, Y fused | X, Y fused |
+| 3-5 | Roll, Pitch, Yaw | Yaw fused | Yaw fused |
+| 6-8 | VX, VY, VZ | VX, Yaw vel | VX, Yaw vel |
+| 9-11 | Roll vel, Pitch vel, Yaw vel | Yaw vel | Yaw vel |
+| 12-14 | AX, AY, AZ | AX | AX |
+
+## Parameter Configuration
+
+### Tag Pose Publisher Parameters
+
+```yaml
+tag_pose_publisher:
+  ros__parameters:
+    tag_frame: "tag36h11:0"                    # Static tag in world
+    detected_tag_frame: "tag36h11:0_detection" # Live detection frame
+    camera_frame: "camera_front_optical_frame"
+    target_frame: "base_footprint"
+    map_frame: "map"
+```
+
+### Rejection Threshold
+
+```yaml
+pose0_rejection_threshold: 5.0
+```
+
+AprilTag measurements are rejected if they differ from the predicted state by more than 5.0 standard deviations (Mahalanobis distance).
+
+<Note>
+This prevents spurious detections or tag misidentifications from corrupting the global pose estimate.
+</Note>
+
+## Frame Tree
+
+```
+map (global, fixed)
+ ├─ tag36h11:0 (static beacon)
+ └─ odom (drifts over time)
+     └─ base_footprint (rover base)
+         └─ camera_front_optical_frame
+             └─ tag36h11:0_detection (when visible)
+```
+
+**Published by:**
+- `map` → `odom`: Global EKF
+- `odom` → `base_footprint`: Local EKF
+- `base_footprint` → `camera_front_optical_frame`: robot_state_publisher (URDF)
+- `camera_front_optical_frame` → `tag36h11:0_detection`: AprilTag detector
+
+## Running Localization
+
+<Steps>
+  <Step title="Launch both EKF nodes">
+    ```bash
+    ros2 launch robot_localization dual_ekf.launch.py
+    ```
+  </Step>
+
+  <Step title="Start AprilTag detector">
+    ```bash
+    ros2 launch apriltag_ros tag_36h11.launch.py
+    ```
+  </Step>
+
+  <Step title="Run tag pose publisher">
+    ```bash
+    ros2 run lunabot_localisation tag_pose_publisher
+    ```
+  </Step>
+
+  <Step title="Verify transforms">
+    ```bash
+    ros2 run tf2_ros tf2_echo map base_footprint
+    ```
+  </Step>
+</Steps>
+
+## Monitoring Localization Quality
+
+### Check Tag Detection Rate
+
+```bash
+ros2 topic hz /tag_pose
+```
+
+Should show ~10 Hz when tag is visible.
+
+### Inspect Covariance
+
+```bash
+ros2 topic echo /tag_pose --field pose.covariance
+```
+
+Lower values indicate higher confidence measurements.
+
+### Visualize in RViz
+
+```python
+# Add PoseWithCovarianceStamped display
+topic: /tag_pose
+color: green
+shape: arrow
+covariance: show XY
+```
+
+<Warning>
+If the global EKF jumps erratically, check:
+1. `pose0_rejection_threshold` may be too high
+2. AprilTag detection quality (lighting, distance)
+3. Static transform `map` → `tag36h11:0` accuracy
+</Warning>
+
+## Benefits of Dual EKF Architecture
+
+| Aspect | Single EKF | Dual EKF |
+|--------|------------|----------|
+| Local smoothness | Jumps when global correction applied | Always continuous |
+| Global accuracy | Corrects drift | Corrects drift |
+| Controller stability | May destabilize on jumps | Stable - uses smooth odom frame |
+| SLAM compatibility | Difficult | Natural - global corrections in map↔odom |
+
+<Note>
+The local EKF provides the `odom` → `base_footprint` transform used by controllers, ensuring smooth velocity commands even when AprilTag updates cause global position jumps.
+</Note>

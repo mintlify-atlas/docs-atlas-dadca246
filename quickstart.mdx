@@ -1,80 +1,242 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start
+description: Clone the repository, install dependencies, and build the Innex1 Rover workspace
 ---
 
-## Get started in three steps
+Get the Innex1 Rover simulation running in minutes.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Complete the [installation guide](/installation) before proceeding.
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+## Workspace setup
 
-### Step 2: Deploy your changes
+<Steps>
+  <Step title="Clone the repository">
+    Clone the Innex1 Rover source code:
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```bash
+    git clone https://github.com/KJdotIO/innex1-rover.git
+    cd innex1-rover
+    ```
+  </Step>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+  <Step title="Install dependencies">
+    Use rosdep to automatically install all package dependencies:
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```bash
+    rosdep install --from-paths src -y --ignore-src
+    ```
 
-### Step 3: Go live
+    This command scans all packages in `src/` and installs missing ROS dependencies.
+  </Step>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+  <Step title="Build the workspace">
+    Build all packages using colcon:
+
+    ```bash
+    colcon build --symlink-install
+    ```
+
+    <Note>
+      The `--symlink-install` flag allows you to edit launch files and world files without rebuilding.
+    </Note>
+
+    Build time: 2-5 minutes depending on your system.
+  </Step>
+
+  <Step title="Source the workspace">
+    Load the built packages into your environment:
+
+    ```bash
+    source install/setup.bash
+    ```
+
+    <Tip>
+      Add this to your `~/.bashrc` to automatically source the workspace:
+      ```bash
+      echo "source ~/innex1-rover/install/setup.bash" >> ~/.bashrc
+      ```
+    </Tip>
+  </Step>
+
+  <Step title="Set up GZ Web alias (optional)">
+    Create a convenient alias for web-based visualization:
+
+    ```bash
+    echo "alias gzweb='ign launch \$(ros2 pkg prefix lunabot_simulation)/share/lunabot_simulation/config/websocket.ign'" >> ~/.bashrc
+    source ~/.bashrc
+    ```
+  </Step>
+</Steps>
+
+## Launch the simulation
+
+Start the moon yard simulation:
+
+```bash
+ros2 launch lunabot_simulation moon_yard.launch.py
+```
+
+You should see output indicating:
+
+- Gazebo server starting
+- Moon yard world loading
+- Robot description published
+- Rover spawning at coordinates (0.0, 0.0, 0.5)
+- ROS-Gazebo bridges active
+
+<Note>
+  The simulation runs in headless mode by default to conserve resources. The rover spawns above the surface and settles under gravity.
+</Note>
+
+## Verify the simulation
+
+In a new terminal, check active topics:
+
+```bash
+source install/setup.bash
+ros2 topic list
+```
+
+Expected topics include:
+
+- `/cmd_vel` - Velocity commands
+- `/odom` - Odometry data
+- `/imu/data_raw` - IMU measurements
+- `/scan` - 2D LiDAR data
+- `/camera_front/image` - Front camera feed
+- `/camera_front/depth_image` - Depth data
+- `/joint_states` - Wheel joint states
+
+## Quick test drive
+
+Control the rover with keyboard teleoperation:
+
+<Steps>
+  <Step title="Launch teleop">
+    In a new terminal:
+
+    ```bash
+    source install/setup.bash
+    ros2 run teleop_twist_keyboard teleop_twist_keyboard
+    ```
+  </Step>
+
+  <Step title="Drive the rover">
+    Use these keys:
+
+    - `i` - Forward
+    - `k` - Stop
+    - `,` - Backward
+    - `j` - Rotate left
+    - `l` - Rotate right
+    - `q` - Increase speed
+    - `z` - Decrease speed
+  </Step>
+</Steps>
+
+<Warning>
+  Keep the teleop terminal focused to receive keyboard input.
+</Warning>
+
+## Workspace structure
+
+The repository is organized as follows:
+
+```
+innex1-rover/
+├── src/
+│   ├── external/              # Third-party packages
+│   │   ├── leo_common-ros2/   # Leo Rover description
+│   │   └── leo_simulator-ros2/ # Leo Gazebo plugins
+│   ├── lunabot_bringup/       # System launch files
+│   ├── lunabot_control/       # Control algorithms
+│   ├── lunabot_description/   # Robot URDF and meshes
+│   ├── lunabot_interfaces/    # ROS actions and messages
+│   ├── lunabot_localisation/  # AprilTag, EKF, SLAM
+│   ├── lunabot_navigation/    # Nav2 configuration
+│   ├── lunabot_perception/    # Hazard detection
+│   ├── lunabot_simulation/    # Gazebo worlds and launch
+│   └── lunabot_teleop/        # Manual control
+├── build/                     # Build artifacts
+├── install/                   # Installed packages
+└── log/                       # Build and runtime logs
+```
+
+## Development workflow
+
+### Editing launch and world files
+
+With `--symlink-install`, you can edit `.launch.py` and `.sdf` files without rebuilding:
+
+1. Edit the file in `src/lunabot_simulation/`
+2. Kill Gazebo: `pkill -9 -f "gz sim"`
+3. Relaunch: `ros2 launch lunabot_simulation moon_yard.launch.py`
+
+### When to rebuild
+
+Rebuild when you change:
+
+- `CMakeLists.txt` or `package.xml`
+- C++ source files
+- Python package structure
+- Adding new files
+
+```bash
+colcon build --symlink-install
+source install/setup.bash
+```
+
+<Tip>
+  Build only specific packages:
+  ```bash
+  colcon build --packages-select lunabot_perception
+  ```
+</Tip>
+
+## Troubleshooting
+
+**Launch file not found:**
+
+Ensure the launch directory is installed in `CMakeLists.txt`:
+
+```cmake
+install(DIRECTORY
+  launch
+  DESTINATION share/${PROJECT_NAME}
+)
+```
+
+Rebuild after making changes.
+
+**Multiple Gazebo instances:**
+
+Kill all Gazebo processes:
+
+```bash
+pkill -9 -f "gz sim"
+```
+
+**Models not loading:**
+
+Gazebo downloads models from the internet on first launch. Ensure you have an active connection. Models cache locally in `~/.gz/fuel/` for offline use.
+
+**Package not found after building:**
+
+Source the workspace:
+
+```bash
+source install/setup.bash
+```
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Run simulation" icon="play" href="/running-simulation">
+    Launch visualization tools and explore the environment
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/topics">
+    Learn about ROS topics, actions, and services
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

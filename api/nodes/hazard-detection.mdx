@@ -1,0 +1,60 @@
+---
+title: Hazard Detection
+description: Point cloud processing node for detecting obstacles from depth camera data
+---
+
+## Overview
+
+The `hazard_detection_node` processes depth camera point cloud data to detect hazards such as boulders, craters, and other obstacles in the robot's environment. It uses Open3D for point cloud processing and implements a plane segmentation algorithm to identify obstacles that deviate from the ground plane.
+
+The node performs the following processing pipeline:
+1. Filters invalid points (NaN and infinite values)
+2. Downsamples the point cloud using voxel filtering
+3. Removes statistical outliers
+4. Segments the ground plane using RANSAC
+5. Publishes remaining points as detected obstacles
+
+These obstacle points can be integrated into the navigation costmap for path planning and collision avoidance.
+
+## Parameters
+
+This node does not declare any configurable ROS parameters. Processing parameters are hardcoded:
+- Voxel downsampling size: 0.05 m
+- Statistical outlier removal: 20 neighbors, 2.0 std deviation ratio
+- Plane segmentation distance threshold: 0.05 m
+- RANSAC iterations: 1000
+
+## Published Topics
+
+### /hazards/front
+
+**Type:** `sensor_msgs/msg/PointCloud2`
+
+**Description:** Filtered point cloud containing detected obstacles after ground plane removal. Points are published in the same frame as the input camera data. This topic can be consumed by costmap layers or visualization tools.
+
+## Subscribed Topics
+
+### /camera_front/points
+
+**Type:** `sensor_msgs/msg/PointCloud2`
+
+**Description:** Raw point cloud data from the front-facing depth camera. Expected to contain XYZ fields. The node filters out NaN and infinite values during processing.
+
+## Action Servers
+
+This node does not provide any action servers.
+
+## Launch Command
+
+```bash
+ros2 run lunabot_perception hazard_detection_node
+```
+
+With remapped topics:
+
+```bash
+ros2 run lunabot_perception hazard_detection_node \
+  --ros-args \
+  -r /camera_front/points:=/custom/depth/points \
+  -r /hazards/front:=/custom/hazards
+```
