@@ -74,6 +74,7 @@
             "group": "Nodes",
             "pages": [
               "api/nodes/material-action-server",
+              "api/nodes/material-action-client",
               "api/nodes/hazard-detection",
               "api/nodes/tag-pose-publisher"
             ]

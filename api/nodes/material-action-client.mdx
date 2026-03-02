@@ -1,0 +1,138 @@
+---
+title: Material Action Client
+description: Test client for excavation and deposition action sequences
+---
+
+## Overview
+
+The Material Action Client is a simple test node that executes a complete excavation-then-deposition sequence. It is primarily used for bench testing, CI smoke checks, and verifying the material handling system integration.
+
+**Package:** `lunabot_control`  
+**Node Name:** `material_action_client`  
+**Source:** `src/lunabot_control/lunabot_control/material_action_client.py`
+
+## Purpose
+
+This client node provides:
+- Automated testing of the excavation and deposition action sequence
+- Validation that both action servers are available and responding
+- Configurable timeout and goal parameters for testing
+- Clear success/failure reporting for CI integration
+
+## Parameters
+
+<ParamField path="excavate_timeout_s" type="float64" default="12.0">
+  Maximum time allowed for the excavation operation in seconds
+</ParamField>
+
+<ParamField path="deposit_timeout_s" type="float64" default="10.0">
+  Maximum time allowed for the deposition operation in seconds
+</ParamField>
+
+<ParamField path="dump_duration_s" type="float64" default="3.0">
+  Duration to hold the dump position before closing in seconds
+</ParamField>
+
+## Action Clients
+
+The node creates action clients for:
+- `/mission/excavate` - Excavate action interface
+- `/mission/deposit` - Deposit action interface
+
+## Execution Sequence
+
+<Steps>
+  <Step title="Wait for servers">
+    The client waits up to 5 seconds for both action servers to become available. If either server is unavailable, the sequence fails immediately.
+  </Step>
+  
+  <Step title="Send excavation goal">
+    Sends an excavation goal with:
+    - Mode: `MODE_AUTO`
+    - Timeout: Configured `excavate_timeout_s`
+    - Target fill: 0.8 (80% capacity)
+    - Max speed: 0.2 m/s
+  </Step>
+  
+  <Step title="Wait for excavation result">
+    Blocks until the excavation action completes. If the action is rejected or fails, the sequence terminates with an error.
+  </Step>
+  
+  <Step title="Send deposition goal">
+    Sends a deposition goal with:
+    - Mode: `MODE_AUTO`
+    - Timeout: Configured `deposit_timeout_s`
+    - Dump duration: Configured `dump_duration_s`
+    - Require close: `true`
+  </Step>
+  
+  <Step title="Wait for deposition result">
+    Blocks until the deposition action completes. If the action is rejected or fails, the sequence terminates with an error.
+  </Step>
+  
+  <Step title="Report success">
+    Logs successful completion and exits with status code 0.
+  </Step>
+</Steps>
+
+## Usage
+
+### Launch the client
+
+```bash
+ros2 run lunabot_control material_action_client
+```
+
+### Launch with custom parameters
+
+```bash
+ros2 run lunabot_control material_action_client \
+  --ros-args \
+  -p excavate_timeout_s:=15.0 \
+  -p deposit_timeout_s:=12.0 \
+  -p dump_duration_s:=5.0
+```
+
+### Check exit status
+
+The node exits with status code 0 on success, non-zero on failure:
+
+```bash
+ros2 run lunabot_control material_action_client
+echo $?  # 0 = success, 1 = failure
+```
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0    | Sequence completed successfully |
+| 1    | Action server unavailable, goal rejected, or operation failed |
+
+## Integration Testing
+
+This client is designed for automated testing workflows:
+
+```yaml
+# Example CI test step
+- name: Test material actions
+  run: |
+    # Launch the action servers in background
+    ros2 launch lunabot_control material_actions.launch.py &
+    sleep 2
+    
+    # Run the test sequence
+    ros2 run lunabot_control material_action_client
+    
+    # The command will exit with non-zero status if the test fails
+```
+
+## Source Reference
+
+See `src/lunabot_control/lunabot_control/material_action_client.py:10-114` for the complete implementation.
+
+## Related
+
+- [Material Action Server](/api/nodes/material-action-server) - The server implementation
+- [Excavate Action](/api/actions/excavate) - Excavation action interface
+- [Deposit Action](/api/actions/deposit) - Deposition action interface
